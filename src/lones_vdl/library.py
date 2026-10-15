@@ -7,6 +7,7 @@ from pathlib import Path
 
 from lones_vdl.db import VideoRow
 from lones_vdl.media import (
+    MediaError,
     MediaProcessor,
     PlaybackPlan,
     ensure_playable_derivative,
@@ -61,11 +62,21 @@ def build_detail(
     paths = item_paths(archive_root, video.platform, video.platform_video_id)
     plan: PlaybackPlan
     if media_file.is_file() and ensure_remux:
-        plan = ensure_playable_derivative(
-            paths=paths,
-            media_file=media_file,
-            processor=processor,
-        )
+        try:
+            plan = ensure_playable_derivative(
+                paths=paths,
+                media_file=media_file,
+                processor=processor,
+            )
+        except MediaError as exc:
+            probe_plan = plan_playback(processor.probe(media_file), source_path=media_file)
+            plan = PlaybackPlan(
+                mode="unavailable",
+                container=None,
+                reason=f"Remux failed: {exc}",
+                video_codec=probe_plan.video_codec,
+                audio_codec=probe_plan.audio_codec,
+            )
     elif media_file.is_file():
         plan = plan_playback(processor.probe(media_file), source_path=media_file)
     else:

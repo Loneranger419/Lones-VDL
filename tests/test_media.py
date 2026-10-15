@@ -82,3 +82,11 @@ def test_ensure_playable_creates_derivative(tmp_path: Path) -> None:
     )
     assert plan.mode == "remux"
     assert (paths.final_dir / "derivatives" / "play.webm").read_bytes() == b"fake-derivative"
+
+
+def test_remux_temp_keeps_container_extension() -> None:
+    """Regression: .webm.partial broke ffmpeg muxer detection."""
+    destination = Path("derivatives/play.webm")
+    tmp = destination.with_name(f"{destination.stem}.partial{destination.suffix}")
+    assert tmp.name == "play.partial.webm"
+    assert tmp.suffix == ".webm"

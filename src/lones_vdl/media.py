@@ -195,8 +195,10 @@ class FfmpegMediaProcessor:
     def remux_copy(self, source: Path, destination: Path) -> None:
         exe = shutil.which(self.ffmpeg) or self.ffmpeg
         destination.parent.mkdir(parents=True, exist_ok=True)
-        # Write to a temp name then replace for crash safety.
-        tmp = destination.with_suffix(destination.suffix + ".partial")
+        # Keep a real container extension so ffmpeg can detect the muxer
+        # (e.g. play.partial.webm — not play.webm.partial).
+        tmp = destination.with_name(f"{destination.stem}.partial{destination.suffix}")
+        fmt = {".webm": "webm", ".mp4": "mp4"}.get(destination.suffix.lower())
         if tmp.exists():
             tmp.unlink()
         cmd = [
@@ -210,8 +212,10 @@ class FfmpegMediaProcessor:
             "0:a:0?",
             "-c",
             "copy",
-            str(tmp),
         ]
+        if fmt:
+            cmd.extend(["-f", fmt])
+        cmd.append(str(tmp))
         try:
             result = subprocess.run(
                 cmd,
@@ -226,8 +230,17 @@ class FfmpegMediaProcessor:
         if result.returncode != 0:
             if tmp.exists():
                 tmp.unlink(missing_ok=True)
-            raise MediaError(result.stderr.strip() or "ffmpeg remux failed")
+            raise MediaError(_short_ffmpeg_error(result.stderr) or "ffmpeg remux failed")
         tmp.replace(destination)
+
+
+def _short_ffmpeg_error(stderr: str) -> str:
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    # Skip the long banner; keep the useful trailing diagnostics.
+    useful = [line for line in lines if not line.startswith("ffmpeg version")]
+    if not useful:
+        useful = lines
+    return "\n".join(useful[-12:])
 
 
 def ensure_playable_derivative(
