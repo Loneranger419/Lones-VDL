@@ -1,0 +1,24 @@
+# Target: headless Linux host. Mount NAS at ARCHIVE_ROOT; keep DB on a local volume.
+services:
+  lones-vdl:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      LONES_VDL_HOST: "0.0.0.0"
+      LONES_VDL_ARCHIVE_ROOT: /archive
+      LONES_VDL_DATABASE_PATH: /var/lib/lones-vdl/lones_vdl.db
+      # LONES_VDL_YTDLP_COOKIES_FILE: /secrets/youtube.cookies.txt
+    volumes:
+      # Replace with your NAS mount path on the host.
+      - ${LONES_VDL_HOST_ARCHIVE:-../data/archive}:/archive
+      - lones-vdl-db:/var/lib/lones-vdl
+      # - ${LONES_VDL_HOST_SECRETS:-../secrets}:/secrets:ro
+    restart: unless-stopped
+
+volumes:
+  lones-vdl-db:
