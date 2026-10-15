@@ -60,3 +60,14 @@ class ErrorResponse(BaseModel):
     detail: str
     code: str | None = None
     platform_video_id: str | None = None
+
+
+class PublicConfigResponse(BaseModel):
+    """Non-secret operator settings for the web UI."""
+
+    default_quality: str
+    archive_root: str
+    download_concurrency: int
+    download_max_attempts: int
+    cookies_configured: bool
+    quality_presets: list[str]

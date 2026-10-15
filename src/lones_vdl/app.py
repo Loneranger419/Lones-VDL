@@ -21,10 +21,18 @@ from lones_vdl.platform.ytdlp import YtdlpAdapter, YtdlpCliAdapter
 from lones_vdl.schemas import (
     EnqueueRequest,
     JobResponse,
+    PublicConfigResponse,
     VideoDetailResponse,
     VideoResponse,
 )
 from lones_vdl.storage import item_paths
+
+QUALITY_PRESETS = [
+    "best",
+    "bv*+ba/b",
+    "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+    "bestvideo[height<=720]+bestaudio/best[height<=720]",
+]
 
 
 def _job_response(job: JobRow) -> JobResponse:
@@ -90,6 +98,22 @@ def create_app(
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
+
+    @app.get(
+        "/api/config",
+        response_model=PublicConfigResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def public_config() -> PublicConfigResponse:
+        cookies = settings.ytdlp_cookies_file
+        return PublicConfigResponse(
+            default_quality=settings.default_quality,
+            archive_root=str(settings.archive_root.resolve()),
+            download_concurrency=settings.download_concurrency,
+            download_max_attempts=settings.download_max_attempts,
+            cookies_configured=bool(cookies and Path(cookies).is_file()),
+            quality_presets=QUALITY_PRESETS,
+        )
 
     @app.post(
         "/api/jobs",

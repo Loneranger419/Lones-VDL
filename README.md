@@ -3,7 +3,7 @@
 Cross-platform (Windows develop → Linux/Docker deploy) video archival system focused on
 reliable long-term preservation of YouTube and Twitch content and metadata.
 
-**Status:** Milestone 2 — archive library web UI with remux-only browser playback.
+**Status:** Milestone 3 — web enqueue + job queue alongside library playback.
 
 ## Architecture
 
