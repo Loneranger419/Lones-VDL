@@ -3,7 +3,8 @@
 Cross-platform (Windows develop → Linux/Docker deploy) video archival system focused on
 reliable long-term preservation of YouTube and Twitch content and metadata.
 
-**Status:** Milestone 0 scaffold — health API and verification only. No downloads yet.
+**Status:** Milestone 1 — YouTube single-video archive path (API/CLI, sidecars, SQLite).
+Web library UI and remux playback come in later milestones.
 
 ## Architecture
 
@@ -23,10 +24,27 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 copy .env.example .env
 powershell -File scripts\check.ps1
-python -m lones_vdl
+python -m lones_vdl serve
 ```
 
+Install **yt-dlp** (and FFmpeg) on PATH for real downloads. Automated tests mock yt-dlp.
+
 Health check: `GET http://127.0.0.1:8080/api/health`
+
+Enqueue (API):
+
+```powershell
+curl -X POST http://127.0.0.1:8080/api/jobs `
+  -H "Authorization: Bearer change-me" `
+  -H "Content-Type: application/json" `
+  -d "{\"url\":\"https://www.youtube.com/watch?v=VIDEO_ID\"}"
+```
+
+Enqueue (CLI, synchronous):
+
+```powershell
+python -m lones_vdl enqueue --sync "https://www.youtube.com/watch?v=VIDEO_ID"
+```
 
 ## Verification
 

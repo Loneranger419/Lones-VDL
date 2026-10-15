@@ -2,10 +2,15 @@
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
-Write-Host "==> ruff check"
-python -m ruff check src tests
-Write-Host "==> ruff format --check"
-python -m ruff format --check src tests
-Write-Host "==> pytest"
-python -m pytest -q
+function Invoke-Step([string]$Label, [scriptblock]$Action) {
+    Write-Host "==> $Label"
+    & $Action
+    if ($LASTEXITCODE -ne 0) {
+        throw "Step failed: $Label (exit $LASTEXITCODE)"
+    }
+}
+
+Invoke-Step "ruff check" { python -m ruff check src tests }
+Invoke-Step "ruff format --check" { python -m ruff format --check src tests }
+Invoke-Step "pytest" { python -m pytest -q }
 Write-Host "OK: check passed"

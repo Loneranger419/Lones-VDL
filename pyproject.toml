@@ -24,7 +24,7 @@ dev = [
 ]
 
 [project.scripts]
-lones-vdl = "lones_vdl.__main__:main"
+lones-vdl = "lones_vdl.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lones_vdl"]

@@ -75,8 +75,8 @@ Implementation follows milestones; this document is the source of truth for boun
 
 ## Milestones
 
-0. Foundation (this scaffold)
-1. Core archive path (API/CLI + yt-dlp + sidecars + DB)
+0. Foundation (this scaffold) — done
+1. Core archive path (API/CLI + yt-dlp + sidecars + DB) — done
 2. Web library + remux playback + token auth
 3. Web job control
 4. Integrity rescan/verify

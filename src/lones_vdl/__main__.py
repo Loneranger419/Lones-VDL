@@ -1,20 +1,6 @@
-"""CLI entry: run the API with uvicorn."""
+"""CLI entry: `python -m lones_vdl`."""
 
-import uvicorn
-
-from lones_vdl.config import get_settings
-
-
-def main() -> None:
-    settings = get_settings()
-    uvicorn.run(
-        "lones_vdl.app:create_app",
-        factory=True,
-        host=settings.host,
-        port=settings.port,
-        reload=False,
-    )
-
+from lones_vdl.cli import main
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
