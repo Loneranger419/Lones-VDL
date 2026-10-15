@@ -297,8 +297,8 @@ class ArchiveService:
     def list_jobs(self, *, limit: int = 50) -> list[JobRow]:
         return self.db.list_jobs(limit=limit)
 
-    def list_videos(self, *, limit: int = 50) -> list[VideoRow]:
-        return self.db.list_videos(limit=limit)
+    def list_videos(self, *, limit: int = 50, q: str | None = None) -> list[VideoRow]:
+        return self.db.list_videos(limit=limit, q=q)
 
     def get_video(self, platform: str, platform_video_id: str) -> VideoRow | None:
         return self.db.get_video(platform, platform_video_id)

@@ -6,15 +6,25 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from lones_vdl import __version__
 from lones_vdl.auth import make_require_api_token
 from lones_vdl.config import Settings, get_settings
-from lones_vdl.db import Database, JobRow, VideoRow
+from lones_vdl.db import Database, JobRow
 from lones_vdl.download.service import ArchiveService
 from lones_vdl.errors import DuplicateArchiveError
+from lones_vdl.library import build_detail, resolve_media_file, to_video_response
+from lones_vdl.media import FfmpegMediaProcessor, MediaError, MediaProcessor, find_thumbnail
 from lones_vdl.platform.ytdlp import YtdlpAdapter, YtdlpCliAdapter
-from lones_vdl.schemas import EnqueueRequest, JobResponse, VideoResponse
+from lones_vdl.schemas import (
+    EnqueueRequest,
+    JobResponse,
+    VideoDetailResponse,
+    VideoResponse,
+)
+from lones_vdl.storage import item_paths
 
 
 def _job_response(job: JobRow) -> JobResponse:
@@ -34,24 +44,11 @@ def _job_response(job: JobRow) -> JobResponse:
     )
 
 
-def _video_response(video: VideoRow) -> VideoResponse:
-    return VideoResponse(
-        id=video.id,
-        platform=video.platform,
-        platform_video_id=video.platform_video_id,
-        title=video.title,
-        url=video.url,
-        media_relpath=video.media_relpath,
-        metadata_relpath=video.metadata_relpath,
-        checksum_sha256=video.checksum_sha256,
-        archived_at=video.archived_at,
-    )
-
-
 def create_app(
     settings: Settings | None = None,
     *,
     adapter: YtdlpAdapter | None = None,
+    media_processor: MediaProcessor | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     settings.archive_root = Path(settings.archive_root)
@@ -70,6 +67,7 @@ def create_app(
         max_workers=settings.download_concurrency,
         max_attempts=settings.download_max_attempts,
     )
+    media = media_processor or FfmpegMediaProcessor()
     require_token = make_require_api_token(settings)
 
     @asynccontextmanager
@@ -87,6 +85,7 @@ def create_app(
     app.state.settings = settings
     app.state.db = db
     app.state.service = service
+    app.state.media = media
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -139,18 +138,92 @@ def create_app(
         response_model=list[VideoResponse],
         dependencies=[Depends(require_token)],
     )
-    def list_videos(limit: int = 50) -> list[VideoResponse]:
-        return [_video_response(v) for v in service.list_videos(limit=limit)]
+    def list_videos(limit: int = 50, q: str | None = None) -> list[VideoResponse]:
+        videos = service.list_videos(limit=limit, q=q)
+        return [to_video_response(settings.archive_root, v) for v in videos]
 
     @app.get(
         "/api/videos/{platform}/{platform_video_id}",
-        response_model=VideoResponse,
+        response_model=VideoDetailResponse,
         dependencies=[Depends(require_token)],
     )
-    def get_video(platform: str, platform_video_id: str) -> VideoResponse:
+    def get_video(platform: str, platform_video_id: str) -> VideoDetailResponse:
         video = service.get_video(platform, platform_video_id)
         if video is None:
             raise HTTPException(status_code=404, detail="Video not found")
-        return _video_response(video)
+        try:
+            return build_detail(
+                archive_root=settings.archive_root,
+                video=video,
+                processor=media,
+                ensure_remux=True,
+            )
+        except MediaError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get(
+        "/api/videos/{platform}/{platform_video_id}/thumbnail",
+        dependencies=[Depends(require_token)],
+    )
+    def get_thumbnail(platform: str, platform_video_id: str) -> FileResponse:
+        video = service.get_video(platform, platform_video_id)
+        if video is None:
+            raise HTTPException(status_code=404, detail="Video not found")
+        paths = item_paths(settings.archive_root, platform, platform_video_id)
+        thumb = find_thumbnail(paths)
+        if thumb is None or not thumb.is_file():
+            raise HTTPException(status_code=404, detail="Thumbnail not found")
+        return FileResponse(thumb)
+
+    @app.get(
+        "/api/videos/{platform}/{platform_video_id}/media",
+        dependencies=[Depends(require_token)],
+    )
+    def get_media(
+        platform: str,
+        platform_video_id: str,
+        variant: str = "play",
+    ) -> FileResponse:
+        video = service.get_video(platform, platform_video_id)
+        if video is None:
+            raise HTTPException(status_code=404, detail="Video not found")
+        media_file = resolve_media_file(settings.archive_root, video)
+        if not media_file.is_file():
+            raise HTTPException(status_code=404, detail="Media file missing")
+
+        if variant == "original":
+            return FileResponse(media_file, filename=media_file.name)
+
+        try:
+            detail = build_detail(
+                archive_root=settings.archive_root,
+                video=video,
+                processor=media,
+                ensure_remux=True,
+            )
+        except MediaError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        playback = detail.playback
+        assert playback is not None
+        if playback.mode == "unavailable" or not playback.play_path:
+            raise HTTPException(
+                status_code=415,
+                detail=playback.reason,
+            )
+        play_file = (settings.archive_root / playback.play_path).resolve()
+        archive_root = settings.archive_root.resolve()
+        try:
+            play_file.relative_to(archive_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid media path") from exc
+        if not play_file.is_file():
+            raise HTTPException(status_code=404, detail="Playable derivative missing")
+        return FileResponse(play_file, filename=play_file.name)
+
+    # Serve built web UI when present (production / docker).
+    web_dist = Path(__file__).resolve().parents[2] / "web" / "dist"
+    if web_dist.is_dir():
+        app.mount("/", StaticFiles(directory=web_dist, html=True), name="web")
 
     return app

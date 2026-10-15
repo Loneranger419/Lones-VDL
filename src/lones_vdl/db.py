@@ -178,12 +178,20 @@ class Database:
             ).fetchall()
             return [_job_from_row(r) for r in rows]
 
-    def list_videos(self, *, limit: int = 50) -> list[VideoRow]:
+    def list_videos(self, *, limit: int = 50, q: str | None = None) -> list[VideoRow]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM videos ORDER BY archived_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            query = "SELECT * FROM videos"
+            params: list[Any] = []
+            if q:
+                query += (
+                    " WHERE title LIKE ? OR platform_video_id LIKE ?"
+                    " OR platform LIKE ? OR url LIKE ?"
+                )
+                needle = f"%{q}%"
+                params.extend([needle, needle, needle, needle])
+            query += " ORDER BY archived_at DESC LIMIT ?"
+            params.append(limit)
+            rows = self._conn.execute(query, params).fetchall()
             return [_video_from_row(r) for r in rows]
 
     def update_job(self, job_id: str, **fields: Any) -> JobRow:

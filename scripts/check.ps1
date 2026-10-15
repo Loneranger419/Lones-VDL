@@ -13,4 +13,14 @@ function Invoke-Step([string]$Label, [scriptblock]$Action) {
 Invoke-Step "ruff check" { python -m ruff check src tests }
 Invoke-Step "ruff format --check" { python -m ruff format --check src tests }
 Invoke-Step "pytest" { python -m pytest -q }
+
+$webPkg = Join-Path (Get-Location) "web\package.json"
+$webModules = Join-Path (Get-Location) "web\node_modules"
+if ((Test-Path $webPkg) -and (Test-Path $webModules)) {
+    Invoke-Step "web svelte-check" {
+        Push-Location web
+        try { npm run check } finally { Pop-Location }
+    }
+}
+
 Write-Host "OK: check passed"

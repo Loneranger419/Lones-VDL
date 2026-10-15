@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -35,6 +37,23 @@ class VideoResponse(BaseModel):
     metadata_relpath: str
     checksum_sha256: str | None
     archived_at: str
+    has_thumbnail: bool = False
+
+
+class PlaybackInfo(BaseModel):
+    mode: Literal["original", "remux", "unavailable"]
+    container: str | None
+    reason: str
+    video_codec: str | None
+    audio_codec: str | None
+    play_path: str | None = None
+    original_path: str | None = None
+
+
+class VideoDetailResponse(VideoResponse):
+    source_metadata: dict[str, Any] | None = None
+    archive_metadata: dict[str, Any] | None = None
+    playback: PlaybackInfo | None = None
 
 
 class ErrorResponse(BaseModel):

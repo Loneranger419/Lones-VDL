@@ -3,8 +3,7 @@
 Cross-platform (Windows develop → Linux/Docker deploy) video archival system focused on
 reliable long-term preservation of YouTube and Twitch content and metadata.
 
-**Status:** Milestone 1 — YouTube single-video archive path (API/CLI, sidecars, SQLite).
-Web library UI and remux playback come in later milestones.
+**Status:** Milestone 2 — archive library web UI with remux-only browser playback.
 
 ## Architecture
 
@@ -45,6 +44,24 @@ Enqueue (CLI, synchronous):
 ```powershell
 python -m lones_vdl enqueue --sync "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
+
+### Web UI (dev)
+
+Terminal 1 — API:
+
+```powershell
+python -m lones_vdl serve
+```
+
+Terminal 2 — UI (proxies `/api` to `:8080`):
+
+```powershell
+cd web
+npm run dev
+```
+
+Open the Vite URL, enter your `LONES_VDL_API_TOKEN`, browse the library.
+AV1+Opus archives remux to WebM on first play (original untouched).
 
 ## Verification
 
