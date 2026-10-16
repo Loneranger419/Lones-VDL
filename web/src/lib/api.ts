@@ -38,6 +38,7 @@ export type Channel = {
   channel: string | null;
   video_count: number;
   favorited: boolean;
+  has_thumbnail: boolean;
 };
 
 export type Job = {
@@ -299,6 +300,11 @@ export function mediaUrl(
 export function thumbnailUrl(platform: string, id: string): string {
   const token = encodeURIComponent(getToken());
   return `/api/videos/${encodeURIComponent(platform)}/${encodeURIComponent(id)}/thumbnail?token=${token}`;
+}
+
+export function channelThumbnailUrl(platform: string, channelId: string): string {
+  const token = encodeURIComponent(getToken());
+  return `/api/channels/${encodeURIComponent(platform)}/${encodeURIComponent(channelId)}/thumbnail?token=${token}`;
 }
 
 export function isActiveJob(status: string): boolean {

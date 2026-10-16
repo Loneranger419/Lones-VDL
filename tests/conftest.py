@@ -43,10 +43,17 @@ class FakeYtdlpAdapter:
                 "webpage_url": url,
                 "channel": "Test Channel",
                 "channel_id": "UC_test_channel",
+                "channel_url": "https://www.youtube.com/channel/UC_test_channel",
                 "upload_date": "20091025",
                 "duration": 42,
             },
         )
+
+    def download_channel_avatar(self, channel_url: str, *, dest_dir: Path) -> Path | None:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / "avatar.jpg"
+        dest.write_bytes(b"fake-channel-avatar")
+        return dest
 
     def download(
         self,
@@ -69,6 +76,7 @@ class FakeYtdlpAdapter:
                 "webpage_url": url,
                 "channel": "Test Channel",
                 "channel_id": "UC_test_channel",
+                "channel_url": "https://www.youtube.com/channel/UC_test_channel",
                 "upload_date": "20091025",
                 "duration": 42,
             },

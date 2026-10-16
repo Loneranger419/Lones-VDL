@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    channelThumbnailUrl,
     clearToken,
     enqueueJob,
     filterCookies,
@@ -507,16 +508,24 @@
                       class:active={selectedChannelIds.includes(ch.channel_id)}
                       onclick={() => toggleChannel(ch.channel_id)}
                     >
-                      <span class="channel-name">
-                        {#if ch.favorited}<span class="star" aria-hidden="true">★</span>{/if}
-                        {ch.channel ?? ch.channel_id}
-                      </span>
-                      <span class="muted">{ch.video_count}</span>
+                      <img
+                        class="channel-avatar"
+                        src={channelThumbnailUrl(ch.platform, ch.channel_id)}
+                        alt=""
+                        onerror={(e) => {
+                          const img = e.currentTarget as HTMLImageElement;
+                          img.style.visibility = "hidden";
+                        }}
+                      />
+                      <span class="channel-name">{ch.channel ?? ch.channel_id}</span>
+                      <span class="muted count">{ch.video_count}</span>
                     </button>
                     <button
                       type="button"
                       class="fav"
+                      class:on={ch.favorited}
                       title={ch.favorited ? "Unfavorite" : "Favorite"}
+                      aria-label={ch.favorited ? "Unfavorite channel" : "Favorite channel"}
                       onclick={(e) => void toggleFavorite(ch, e)}
                     >
                       {ch.favorited ? "★" : "☆"}
@@ -1078,31 +1087,53 @@
   .channels li > button:first-child {
     width: 100%;
     display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.55rem;
     text-align: left;
     background: #151c24;
     color: inherit;
     border: 1px solid #2a3542;
     font-weight: 500;
+    padding: 0.4rem 0.55rem;
   }
   .channels li > button:first-child.active {
     border-color: #3d8bfd;
   }
+  .channel-avatar {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #0a0e12;
+    flex-shrink: 0;
+  }
   .channels .fav {
     background: transparent;
+    color: #3a4554;
+    border: 1px solid transparent;
+    padding: 0.35rem 0.45rem;
+    opacity: 0.45;
+  }
+  .channels .fav:hover {
+    opacity: 0.85;
+    color: #9aa7b5;
+    border-color: #2a3542;
+  }
+  .channels .fav.on {
+    opacity: 1;
     color: #ffcc66;
-    border: 1px solid #2a3542;
-    padding: 0.35rem 0.55rem;
+    border-color: #2a3542;
   }
   .channel-name {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .star {
-    color: #ffcc66;
-    margin-right: 0.2rem;
+  .channels .count {
+    flex-shrink: 0;
   }
   .tiny {
     font-size: 0.8rem;

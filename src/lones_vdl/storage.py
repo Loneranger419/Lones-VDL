@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,8 +52,52 @@ class ItemPaths:
         return self.final_dir / "subtitles"
 
 
+CHANNELS_DIR_NAME = "_channels"
+
+
 def item_paths(archive_root: Path, platform: str, video_id: str) -> ItemPaths:
     return ItemPaths(platform=platform, video_id=video_id, archive_root=archive_root)
+
+
+def sanitize_channel_dir_name(channel_id: str) -> str:
+    """Filesystem-safe channel id (Windows forbids ':' etc.)."""
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", channel_id.strip())
+    return cleaned or "unknown"
+
+
+@dataclass(frozen=True)
+class ChannelPaths:
+    platform: str
+    channel_id: str
+    archive_root: Path
+
+    @property
+    def dir(self) -> Path:
+        return (
+            self.archive_root
+            / self.platform
+            / CHANNELS_DIR_NAME
+            / sanitize_channel_dir_name(self.channel_id)
+        )
+
+    @property
+    def avatar_glob(self) -> str:
+        return "avatar.*"
+
+
+def channel_paths(archive_root: Path, platform: str, channel_id: str) -> ChannelPaths:
+    return ChannelPaths(platform=platform, channel_id=channel_id, archive_root=archive_root)
+
+
+def find_channel_avatar(paths: ChannelPaths) -> Path | None:
+    if not paths.dir.is_dir():
+        return None
+    matches = sorted(
+        p
+        for p in paths.dir.glob("avatar.*")
+        if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+    )
+    return matches[0] if matches else None
 
 
 def prepare_partial_dir(paths: ItemPaths) -> Path:

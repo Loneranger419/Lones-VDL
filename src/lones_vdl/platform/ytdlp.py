@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 import subprocess
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 from lones_vdl.errors import (
     AuthConfigError,
     PermanentDownloadError,
     TransientDownloadError,
 )
+
+logger = logging.getLogger(__name__)
 
 # Common YouTube URL shapes for a fast local id parse (adapter still authoritative).
 _YOUTUBE_ID_RE = re.compile(
@@ -42,6 +48,9 @@ class DownloadResult:
 
 class YtdlpAdapter(Protocol):
     def extract_info(self, url: str) -> VideoInfo: ...
+
+    def download_channel_avatar(self, channel_url: str, *, dest_dir: Path) -> Path | None:
+        """Download a channel avatar into dest_dir as avatar.<ext>, or return None."""
 
     def download(
         self,
@@ -114,12 +123,16 @@ class YtdlpCliAdapter:
         self.executable = executable
         self.cookies_file = cookies_file
 
+    def _exe(self) -> str:
+        return shutil.which(self.executable) or self.executable
+
+    def _cookies_args(self) -> list[str]:
+        if self.cookies_file is None:
+            return []
+        return ["--cookies", str(self.cookies_file)]
+
     def _base_cmd(self) -> list[str]:
-        resolved = shutil.which(self.executable) or self.executable
-        cmd = [resolved, "--no-playlist", "--newline"]
-        if self.cookies_file is not None:
-            cmd.extend(["--cookies", str(self.cookies_file)])
-        return cmd
+        return [self._exe(), "--no-playlist", "--newline", *self._cookies_args()]
 
     def _run(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         try:
@@ -164,6 +177,53 @@ class YtdlpCliAdapter:
             title=raw.get("title"),
             raw=raw,
         )
+
+    def extract_channel_info(self, channel_url: str) -> dict[str, Any]:
+        # Channel pages are playlists; skip videos, keep channel thumbnails.
+        cmd = [
+            self._exe(),
+            "--newline",
+            *self._cookies_args(),
+            "--skip-download",
+            "--playlist-items",
+            "0",
+            "--dump-single-json",
+            channel_url,
+        ]
+        result = self._run(cmd)
+        if result.returncode != 0:
+            raise _classify_ytdlp_error(result.stderr or result.stdout, result.returncode)
+        raw = json.loads(result.stdout)
+        if not isinstance(raw, dict):
+            raise PermanentDownloadError("yt-dlp channel metadata was not an object")
+        return raw
+
+    def download_channel_avatar(self, channel_url: str, *, dest_dir: Path) -> Path | None:
+        from lones_vdl.channel_avatars import pick_avatar_url
+
+        raw = self.extract_channel_info(channel_url)
+        avatar_url = pick_avatar_url(raw)
+        if not avatar_url:
+            return None
+        path = urlparse(avatar_url).path
+        suffix = Path(path).suffix.lower()
+        ext = suffix.lstrip(".") if suffix in {".jpg", ".jpeg", ".png", ".webp"} else "jpg"
+        dest = dest_dir / f"avatar.{ext}"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        request = urllib.request.Request(
+            avatar_url,
+            headers={"User-Agent": "Lones-VDL/0.1 (channel avatar)"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = response.read()
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            logger.info("Avatar HTTP fetch failed: %s", exc)
+            return None
+        if not data:
+            return None
+        dest.write_bytes(data)
+        return dest
 
     def download(
         self,

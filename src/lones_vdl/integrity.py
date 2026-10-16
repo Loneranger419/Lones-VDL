@@ -10,6 +10,7 @@ from typing import Any, Literal
 from lones_vdl.db import Database, utc_now_iso
 from lones_vdl.metadata_fields import extract_browse_fields
 from lones_vdl.storage import (
+    CHANNELS_DIR_NAME,
     ItemPaths,
     find_media_file,
     item_paths,
@@ -86,6 +87,8 @@ def iter_archive_items(archive_root: Path) -> list[ItemPaths]:
             if not item_dir.is_dir():
                 continue
             if item_dir.name.endswith(".partial"):
+                continue
+            if item_dir.name == CHANNELS_DIR_NAME:
                 continue
             found.append(item_paths(archive_root, name, item_dir.name))
     return found

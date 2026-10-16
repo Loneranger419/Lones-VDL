@@ -90,6 +90,13 @@ def test_list_sort_channels_favorites_related(tmp_env: Settings) -> None:
         assert body[0]["channel_id"] == "UC_test_channel"
         assert body[0]["video_count"] == 2
         assert body[0]["favorited"] is False
+        assert body[0]["has_thumbnail"] is True
+
+        thumb = client.get(
+            "/api/channels/youtube/UC_test_channel/thumbnail?token=test-token",
+        )
+        assert thumb.status_code == 200
+        assert thumb.content == b"fake-channel-avatar"
 
         fav = client.put(
             "/api/channels/youtube/UC_test_channel/favorite",

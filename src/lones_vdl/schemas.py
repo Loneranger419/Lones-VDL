@@ -67,6 +67,7 @@ class ChannelResponse(BaseModel):
     channel: str | None
     video_count: int
     favorited: bool
+    has_thumbnail: bool = False
 
 
 class FavoriteRequest(BaseModel):

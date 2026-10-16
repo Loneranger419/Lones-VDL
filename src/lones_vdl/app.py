@@ -12,13 +12,19 @@ from fastapi.staticfiles import StaticFiles
 
 from lones_vdl import __version__
 from lones_vdl.auth import make_require_api_token
+from lones_vdl.channel_avatars import (
+    channel_has_avatar,
+    channel_url_from_source,
+    ensure_channel_avatar,
+    resolve_channel_avatar_file,
+)
 from lones_vdl.config import Settings, get_settings
 from lones_vdl.cookies import count_cookie_rows, filter_netscape_cookies
 from lones_vdl.db import Database, JobRow
 from lones_vdl.download.service import ArchiveService
 from lones_vdl.errors import DuplicateArchiveError
 from lones_vdl.integrity import rescan_archive, verify_archive
-from lones_vdl.library import build_detail, resolve_media_file, to_video_response
+from lones_vdl.library import build_detail, load_sidecar, resolve_media_file, to_video_response
 from lones_vdl.media import FfmpegMediaProcessor, MediaError, MediaProcessor, find_thumbnail
 from lones_vdl.metadata_refresh import refresh_incomplete_metadata, refresh_video_metadata
 from lones_vdl.platform.ytdlp import YtdlpAdapter, YtdlpCliAdapter
@@ -292,6 +298,7 @@ def create_app(
                 channel=c.channel,
                 video_count=c.video_count,
                 favorited=c.favorited,
+                has_thumbnail=channel_has_avatar(settings.archive_root, c.platform, c.channel_id),
             )
             for c in db.list_channels(platform=platform)
         ]
@@ -321,6 +328,7 @@ def create_app(
                 channel=body.channel,
                 video_count=0,
                 favorited=body.favorited,
+                has_thumbnail=channel_has_avatar(settings.archive_root, platform, channel_id),
             )
         return ChannelResponse(
             platform=row.platform,
@@ -328,7 +336,37 @@ def create_app(
             channel=row.channel,
             video_count=row.video_count,
             favorited=row.favorited,
+            has_thumbnail=channel_has_avatar(settings.archive_root, row.platform, row.channel_id),
         )
+
+    @app.get(
+        "/api/channels/{platform}/{channel_id}/thumbnail",
+        dependencies=[Depends(require_token)],
+    )
+    def get_channel_thumbnail(platform: str, channel_id: str) -> FileResponse:
+        avatar = resolve_channel_avatar_file(settings.archive_root, platform, channel_id)
+        if avatar is None:
+            # Lazy backfill from first archived video's channel_url / metadata refresh path.
+            channel_url = None
+            for video in db.list_videos(limit=5, channel_ids=[channel_id]):
+                if video.platform != platform:
+                    continue
+                source, _archive = load_sidecar(settings.archive_root, video)
+                if source:
+                    channel_url = channel_url_from_source(source)
+                    if channel_url:
+                        break
+            if channel_url:
+                avatar = ensure_channel_avatar(
+                    archive_root=settings.archive_root,
+                    platform=platform,
+                    channel_id=channel_id,
+                    channel_url=channel_url,
+                    adapter=ytdlp,
+                )
+        if avatar is None or not avatar.is_file():
+            raise HTTPException(status_code=404, detail="Channel thumbnail not found")
+        return FileResponse(avatar)
 
     @app.get(
         "/api/videos/{platform}/{platform_video_id}",

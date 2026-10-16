@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from lones_vdl.channel_avatars import channel_url_from_source, ensure_channel_avatar
 from lones_vdl.db import Database, VideoRow
 from lones_vdl.errors import LonesVdlError
 from lones_vdl.metadata_fields import extract_browse_fields
@@ -84,6 +85,14 @@ def refresh_video_metadata(
     if paths.final_dir.is_dir():
         write_sidecar(paths, source=source, archive=archive)
 
+    if browse.channel_id:
+        ensure_channel_avatar(
+            archive_root=archive_root,
+            platform=video.platform,
+            channel_id=browse.channel_id,
+            channel_url=channel_url_from_source(source),
+            adapter=adapter,
+        )
     db.upsert_video(
         platform=video.platform,
         platform_video_id=video.platform_video_id,

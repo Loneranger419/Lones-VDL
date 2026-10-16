@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from lones_vdl import __version__
+from lones_vdl.channel_avatars import channel_url_from_source, ensure_channel_avatar
 from lones_vdl.db import Database, JobRow, VideoRow, utc_now_iso
 from lones_vdl.errors import (
     DuplicateArchiveError,
@@ -185,6 +186,14 @@ class ArchiveService:
                 download.info.raw,
                 fallback_url=download.info.url,
             )
+            if browse.channel_id:
+                ensure_channel_avatar(
+                    archive_root=self.archive_root,
+                    platform=download.info.platform,
+                    channel_id=browse.channel_id,
+                    channel_url=channel_url_from_source(download.info.raw),
+                    adapter=self.adapter,
+                )
             video = self.db.insert_video(
                 platform=download.info.platform,
                 platform_video_id=download.info.video_id,
