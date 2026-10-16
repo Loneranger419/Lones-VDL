@@ -156,6 +156,44 @@ export async function enqueueJob(url: string, qualityPreference: string): Promis
   return res.json();
 }
 
+export type VerifyItem = {
+  platform: string;
+  platform_video_id: string;
+  status: string;
+  detail: string;
+  expected_sha256: string | null;
+  actual_sha256: string | null;
+};
+
+export type VerifyReport = {
+  checked: number;
+  ok: number;
+  issue_count: number;
+  issues: VerifyItem[];
+};
+
+export type RescanReport = {
+  scanned: number;
+  imported: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+  missing_from_disk: string[];
+  items: { platform: string; platform_video_id: string; action: string; detail: string }[];
+};
+
+export async function verifyIntegrity(): Promise<VerifyReport> {
+  const res = await apiFetch("/api/integrity/verify", { method: "POST" });
+  if (!res.ok) throw new Error(await readError(res, "Verify failed"));
+  return res.json();
+}
+
+export async function rescanArchive(): Promise<RescanReport> {
+  const res = await apiFetch("/api/integrity/rescan", { method: "POST" });
+  if (!res.ok) throw new Error(await readError(res, "Rescan failed"));
+  return res.json();
+}
+
 export function mediaUrl(
   platform: string,
   id: string,

@@ -3,7 +3,7 @@
 Cross-platform (Windows develop → Linux/Docker deploy) video archival system focused on
 reliable long-term preservation of YouTube and Twitch content and metadata.
 
-**Status:** Milestone 3 — web enqueue + job queue alongside library playback.
+**Status:** Milestone 4 — integrity verify + sidecar rescan/import.
 
 ## Architecture
 
@@ -87,8 +87,10 @@ docker compose up --build
 1. Core YouTube single-video archive path (API + sidecars + SQLite) — done
 2. Web library + remux-only playback — done
 3. Web job control — done
-4. Integrity rescan/verify
+4. Integrity rescan/verify — done
 5. ~~Desktop client~~ — cancelled (LAN/VPN web UI only)
+
+CLI: `python -m lones_vdl verify` · `python -m lones_vdl rescan`
 
 ## License
 

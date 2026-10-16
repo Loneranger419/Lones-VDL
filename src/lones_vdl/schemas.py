@@ -84,3 +84,36 @@ class CookieFilterResponse(BaseModel):
     lines_before: int
     lines_after: int
     backup_path: str | None = None
+
+
+class VerifyItemResponse(BaseModel):
+    platform: str
+    platform_video_id: str
+    status: str
+    detail: str
+    expected_sha256: str | None = None
+    actual_sha256: str | None = None
+
+
+class VerifyReportResponse(BaseModel):
+    checked: int
+    ok: int
+    issue_count: int
+    issues: list[VerifyItemResponse]
+
+
+class RescanItemResponse(BaseModel):
+    platform: str
+    platform_video_id: str
+    action: str
+    detail: str
+
+
+class RescanReportResponse(BaseModel):
+    scanned: int
+    imported: int
+    updated: int
+    skipped: int
+    errors: int
+    missing_from_disk: list[str]
+    items: list[RescanItemResponse]

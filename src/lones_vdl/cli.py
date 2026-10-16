@@ -11,6 +11,7 @@ from lones_vdl.config import get_settings
 from lones_vdl.db import Database
 from lones_vdl.download.service import ArchiveService
 from lones_vdl.errors import DuplicateArchiveError, LonesVdlError
+from lones_vdl.integrity import rescan_archive, verify_archive
 from lones_vdl.platform.ytdlp import YtdlpCliAdapter
 
 
@@ -98,12 +99,75 @@ def main(argv: list[str] | None = None) -> int:
     )
     enqueue.set_defaults(func=cmd_enqueue)
 
+    verify = sub.add_parser("verify", help="Verify archive checksums against the database")
+    verify.set_defaults(func=cmd_verify)
+
+    rescan = sub.add_parser("rescan", help="Rescan archive sidecars into the database")
+    rescan.set_defaults(func=cmd_rescan)
+
     serve = sub.add_parser("serve", help="Run the HTTP API")
     serve.set_defaults(func=lambda _args: _serve())
 
     args = parser.parse_args(argv)
     result = args.func(args)
     return int(result) if result is not None else 0
+
+
+def _open_db() -> tuple[Database, Path]:
+    settings = get_settings()
+    archive_root = Path(settings.archive_root)
+    db = Database(Path(settings.database_path))
+    return db, archive_root
+
+
+def cmd_verify(_args: argparse.Namespace) -> int:
+    db, archive_root = _open_db()
+    try:
+        report = verify_archive(db, archive_root)
+        print(
+            json.dumps(
+                {
+                    "checked": report.checked,
+                    "ok": report.ok,
+                    "issue_count": len(report.issues),
+                    "issues": [
+                        {
+                            "platform": i.platform,
+                            "platform_video_id": i.platform_video_id,
+                            "status": i.status,
+                            "detail": i.detail,
+                        }
+                        for i in report.issues
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return 0 if not report.issues else 1
+    finally:
+        db.close()
+
+
+def cmd_rescan(_args: argparse.Namespace) -> int:
+    db, archive_root = _open_db()
+    try:
+        report = rescan_archive(db, archive_root)
+        print(
+            json.dumps(
+                {
+                    "scanned": report.scanned,
+                    "imported": report.imported,
+                    "updated": report.updated,
+                    "skipped": report.skipped,
+                    "errors": report.errors,
+                    "missing_from_disk": report.missing_from_disk,
+                },
+                indent=2,
+            )
+        )
+        return 0 if report.errors == 0 else 1
+    finally:
+        db.close()
 
 
 def _serve() -> int:

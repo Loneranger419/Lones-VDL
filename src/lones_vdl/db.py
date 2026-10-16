@@ -194,6 +194,75 @@ class Database:
             rows = self._conn.execute(query, params).fetchall()
             return [_video_from_row(r) for r in rows]
 
+    def list_all_videos(self) -> list[VideoRow]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM videos ORDER BY platform, platform_video_id"
+            ).fetchall()
+            return [_video_from_row(r) for r in rows]
+
+    def upsert_video(
+        self,
+        *,
+        platform: str,
+        platform_video_id: str,
+        title: str | None,
+        url: str,
+        media_relpath: str,
+        metadata_relpath: str,
+        checksum_sha256: str | None,
+        archived_at: str | None = None,
+    ) -> tuple[VideoRow, str]:
+        """Insert or refresh a video row from on-disk archive data."""
+        existing = self.get_video(platform, platform_video_id)
+        if existing is None:
+            return (
+                self.insert_video(
+                    platform=platform,
+                    platform_video_id=platform_video_id,
+                    title=title,
+                    url=url,
+                    media_relpath=media_relpath,
+                    metadata_relpath=metadata_relpath,
+                    checksum_sha256=checksum_sha256,
+                    archived_at=archived_at,
+                ),
+                "imported",
+            )
+        archived = archived_at or existing.archived_at
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE videos
+                SET title = ?, url = ?, media_relpath = ?, metadata_relpath = ?,
+                    checksum_sha256 = ?, archived_at = ?
+                WHERE platform = ? AND platform_video_id = ?
+                """,
+                (
+                    title,
+                    url,
+                    media_relpath,
+                    metadata_relpath,
+                    checksum_sha256,
+                    archived,
+                    platform,
+                    platform_video_id,
+                ),
+            )
+            self._conn.commit()
+        updated = self.get_video(platform, platform_video_id)
+        assert updated is not None
+        return updated, "updated"
+
+    def delete_video(self, platform: str, platform_video_id: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM videos WHERE platform = ? AND platform_video_id = ?",
+                (platform, platform_video_id),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
     def update_job(self, job_id: str, **fields: Any) -> JobRow:
         with self._lock:
             if not fields:

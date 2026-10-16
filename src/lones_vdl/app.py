@@ -16,6 +16,7 @@ from lones_vdl.cookies import count_cookie_rows, filter_netscape_cookies
 from lones_vdl.db import Database, JobRow
 from lones_vdl.download.service import ArchiveService
 from lones_vdl.errors import DuplicateArchiveError
+from lones_vdl.integrity import rescan_archive, verify_archive
 from lones_vdl.library import build_detail, resolve_media_file, to_video_response
 from lones_vdl.media import FfmpegMediaProcessor, MediaError, MediaProcessor, find_thumbnail
 from lones_vdl.platform.ytdlp import YtdlpAdapter, YtdlpCliAdapter
@@ -24,6 +25,10 @@ from lones_vdl.schemas import (
     EnqueueRequest,
     JobResponse,
     PublicConfigResponse,
+    RescanItemResponse,
+    RescanReportResponse,
+    VerifyItemResponse,
+    VerifyReportResponse,
     VideoDetailResponse,
     VideoResponse,
 )
@@ -153,6 +158,55 @@ def create_app(
             lines_before=result.lines_before,
             lines_after=result.lines_after,
             backup_path=result.backup_path,
+        )
+
+    @app.post(
+        "/api/integrity/verify",
+        response_model=VerifyReportResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def integrity_verify() -> VerifyReportResponse:
+        report = verify_archive(db, settings.archive_root)
+        return VerifyReportResponse(
+            checked=report.checked,
+            ok=report.ok,
+            issue_count=len(report.issues),
+            issues=[
+                VerifyItemResponse(
+                    platform=i.platform,
+                    platform_video_id=i.platform_video_id,
+                    status=i.status,
+                    detail=i.detail,
+                    expected_sha256=i.expected_sha256,
+                    actual_sha256=i.actual_sha256,
+                )
+                for i in report.issues
+            ],
+        )
+
+    @app.post(
+        "/api/integrity/rescan",
+        response_model=RescanReportResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def integrity_rescan() -> RescanReportResponse:
+        report = rescan_archive(db, settings.archive_root)
+        return RescanReportResponse(
+            scanned=report.scanned,
+            imported=report.imported,
+            updated=report.updated,
+            skipped=report.skipped,
+            errors=report.errors,
+            missing_from_disk=report.missing_from_disk,
+            items=[
+                RescanItemResponse(
+                    platform=i.platform,
+                    platform_video_id=i.platform_video_id,
+                    action=i.action,
+                    detail=i.detail,
+                )
+                for i in report.items
+            ],
         )
 
     @app.post(

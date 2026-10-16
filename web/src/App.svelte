@@ -10,17 +10,21 @@
     listJobs,
     listVideos,
     mediaUrl,
+    rescanArchive,
     setToken,
     thumbnailUrl,
+    verifyIntegrity,
     type Job,
     type PublicConfig,
+    type RescanReport,
+    type VerifyReport,
     type VideoDetail,
     type VideoSummary,
   } from "./lib/api";
 
   let tokenInput = $state(getToken());
   let authed = $state(Boolean(getToken()));
-  let tab = $state<"library" | "jobs">("library");
+  let tab = $state<"library" | "jobs" | "integrity">("library");
   let query = $state("");
   let videos = $state<VideoSummary[]>([]);
   let selected = $state<VideoDetail | null>(null);
@@ -32,6 +36,9 @@
   let enqueueMsg = $state("");
   let cookieBusy = $state(false);
   let cookieMsg = $state("");
+  let integrityBusy = $state(false);
+  let verifyReport = $state<VerifyReport | null>(null);
+  let rescanReport = $state<RescanReport | null>(null);
   let error = $state("");
   let loading = $state(false);
 
@@ -130,6 +137,31 @@
       error = err instanceof Error ? err.message : String(err);
     } finally {
       cookieBusy = false;
+    }
+  }
+
+  async function runVerify() {
+    integrityBusy = true;
+    error = "";
+    try {
+      verifyReport = await verifyIntegrity();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      integrityBusy = false;
+    }
+  }
+
+  async function runRescan() {
+    integrityBusy = true;
+    error = "";
+    try {
+      rescanReport = await rescanArchive();
+      await refreshVideos();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      integrityBusy = false;
     }
   }
 
@@ -238,11 +270,78 @@
       <button type="button" class:active={tab === "jobs"} onclick={() => (tab = "jobs")}
         >Jobs ({jobs.length})</button
       >
+      <button type="button" class:active={tab === "integrity"} onclick={() => (tab = "integrity")}
+        >Integrity</button
+      >
     </nav>
 
     {#if error}<p class="error">{error}</p>{/if}
 
-    {#if tab === "jobs"}
+    {#if tab === "integrity"}
+      <section class="integrity">
+        <p class="muted">
+          Verify compares on-disk media to <code>checksums.json</code>. Rescan rebuilds or updates
+          the SQLite index from sidecars without re-downloading.
+        </p>
+        <div class="toolbar">
+          <button type="button" disabled={integrityBusy} onclick={() => void runVerify()}
+            >{integrityBusy ? "Working…" : "Verify checksums"}</button
+          >
+          <button type="button" class="ghost" disabled={integrityBusy} onclick={() => void runRescan()}
+            >Rescan / import from disk</button
+          >
+        </div>
+
+        {#if verifyReport}
+          <h2>
+            Verify: {verifyReport.ok}/{verifyReport.checked} ok · {verifyReport.issue_count} issue{verifyReport.issue_count === 1
+              ? ""
+              : "s"}
+          </h2>
+          {#if verifyReport.issues.length === 0}
+            <p class="ok">All checked items look healthy.</p>
+          {:else}
+            <table>
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Item</th>
+                  <th>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each verifyReport.issues as issue (`${issue.platform}:${issue.platform_video_id}:${issue.status}`)}
+                  <tr>
+                    <td><span class="status status-failed">{issue.status}</span></td>
+                    <td>{issue.platform}/{issue.platform_video_id}</td>
+                    <td class="warn">{issue.detail}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {/if}
+        {/if}
+
+        {#if rescanReport}
+          <h2>
+            Rescan: scanned {rescanReport.scanned} · imported {rescanReport.imported} · updated {rescanReport.updated}
+            · errors {rescanReport.errors}
+          </h2>
+          {#if rescanReport.missing_from_disk.length}
+            <p class="warn">
+              In DB but missing on disk: {rescanReport.missing_from_disk.join(", ")}
+            </p>
+          {/if}
+          {#if rescanReport.items.some((i) => i.action === "error")}
+            <ul>
+              {#each rescanReport.items.filter((i) => i.action === "error") as item}
+                <li class="error">{item.platform}/{item.platform_video_id}: {item.detail}</li>
+              {/each}
+            </ul>
+          {/if}
+        {/if}
+      </section>
+    {:else if tab === "jobs"}
       <section class="jobs">
         <div class="toolbar">
           <button type="button" class="ghost" onclick={() => void refreshJobs()}>Refresh</button>

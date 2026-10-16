@@ -78,7 +78,7 @@ Implementation follows milestones; this document is the source of truth for boun
 1. Core archive path (API/CLI + yt-dlp + sidecars + DB) — done
 2. Web library + remux playback + token auth — done
 3. Web job control — done
-4. Integrity rescan/verify
+4. Integrity rescan/verify — done
 5. ~~Thin desktop client~~ — cancelled (web over LAN/VPN instead)
 
 ## Non-goals (near term)
