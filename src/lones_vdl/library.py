@@ -35,6 +35,11 @@ def to_video_response(archive_root: Path, video: VideoRow) -> VideoResponse:
         checksum_sha256=video.checksum_sha256,
         archived_at=video.archived_at,
         has_thumbnail=video_has_thumbnail(archive_root, video),
+        channel=video.channel,
+        channel_id=video.channel_id,
+        upload_date=video.upload_date,
+        metadata_incomplete=video.metadata_incomplete,
+        metadata_gaps=list(video.metadata_gaps),
     )
 
 

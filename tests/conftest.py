@@ -42,6 +42,8 @@ class FakeYtdlpAdapter:
                 "title": self.title,
                 "webpage_url": url,
                 "channel": "Test Channel",
+                "channel_id": "UC_test_channel",
+                "upload_date": "20091025",
                 "duration": 42,
             },
         )
@@ -66,6 +68,8 @@ class FakeYtdlpAdapter:
                 "title": self.title,
                 "webpage_url": url,
                 "channel": "Test Channel",
+                "channel_id": "UC_test_channel",
+                "upload_date": "20091025",
                 "duration": 42,
             },
         )

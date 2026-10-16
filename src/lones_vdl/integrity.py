@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from lones_vdl.db import Database, utc_now_iso
+from lones_vdl.metadata_fields import extract_browse_fields
 from lones_vdl.storage import (
     ItemPaths,
     find_media_file,
@@ -221,12 +222,10 @@ def _sidecar_fields(paths: ItemPaths) -> dict[str, Any]:
     checksum = _load_expected_checksum(paths, media.name)
     if checksum is None:
         checksum = sha256_file(media)
-    title = source.get("title")
-    url = (
-        source.get("webpage_url")
-        or archive.get("original_url")
-        or f"https://www.youtube.com/watch?v={paths.video_id}"
+    fallback_url = archive.get("original_url") or (
+        f"https://www.youtube.com/watch?v={paths.video_id}" if paths.platform == "youtube" else None
     )
+    browse = extract_browse_fields(source, fallback_url=fallback_url)
     archived_at = archive.get("downloaded_at") or utc_now_iso()
     metadata_relpath = (
         relpath_under(paths.archive_root, paths.metadata_path)
@@ -234,12 +233,17 @@ def _sidecar_fields(paths: ItemPaths) -> dict[str, Any]:
         else relpath_under(paths.archive_root, media)
     )
     return {
-        "title": title if isinstance(title, str) else None,
-        "url": str(url),
+        "title": browse.title,
+        "url": browse.url or str(fallback_url or paths.video_id),
         "media_relpath": relpath_under(paths.archive_root, media),
         "metadata_relpath": metadata_relpath,
         "checksum_sha256": checksum,
         "archived_at": str(archived_at),
+        "channel": browse.channel,
+        "channel_id": browse.channel_id,
+        "upload_date": browse.upload_date,
+        "metadata_incomplete": browse.incomplete,
+        "metadata_gaps": browse.gaps,
     }
 
 
@@ -273,6 +277,11 @@ def rescan_archive(db: Database, archive_root: Path) -> RescanReport:
                 metadata_relpath=fields["metadata_relpath"],
                 checksum_sha256=fields["checksum_sha256"],
                 archived_at=fields["archived_at"],
+                channel=fields["channel"],
+                channel_id=fields["channel_id"],
+                upload_date=fields["upload_date"],
+                metadata_incomplete=fields["metadata_incomplete"],
+                metadata_gaps=fields["metadata_gaps"],
             )
             if action == "imported":
                 report.imported += 1

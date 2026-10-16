@@ -38,6 +38,11 @@ class VideoResponse(BaseModel):
     checksum_sha256: str | None
     archived_at: str
     has_thumbnail: bool = False
+    channel: str | None = None
+    channel_id: str | None = None
+    upload_date: str | None = None
+    metadata_incomplete: bool = False
+    metadata_gaps: list[str] = Field(default_factory=list)
 
 
 class PlaybackInfo(BaseModel):
@@ -54,6 +59,27 @@ class VideoDetailResponse(VideoResponse):
     source_metadata: dict[str, Any] | None = None
     archive_metadata: dict[str, Any] | None = None
     playback: PlaybackInfo | None = None
+
+
+class ChannelResponse(BaseModel):
+    platform: str
+    channel_id: str
+    channel: str | None
+    video_count: int
+    favorited: bool
+
+
+class FavoriteRequest(BaseModel):
+    favorited: bool = True
+    channel: str | None = None
+
+
+class RefreshResultResponse(BaseModel):
+    platform: str
+    platform_video_id: str
+    status: str
+    detail: str
+    gaps: list[str]
 
 
 class ErrorResponse(BaseModel):

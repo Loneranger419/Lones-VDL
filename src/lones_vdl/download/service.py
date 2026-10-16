@@ -16,6 +16,7 @@ from lones_vdl.errors import (
     PermanentDownloadError,
     TransientDownloadError,
 )
+from lones_vdl.metadata_fields import extract_browse_fields, source_snapshot
 from lones_vdl.platform.ytdlp import YtdlpAdapter, parse_youtube_id
 from lones_vdl.storage import (
     PLATFORM_YOUTUBE,
@@ -27,52 +28,6 @@ from lones_vdl.storage import (
     write_checksums,
     write_sidecar,
 )
-
-
-def _source_snapshot(raw: dict[str, Any]) -> dict[str, Any]:
-    """Keep a portable subset of yt-dlp metadata (not the entire blob)."""
-    keys = (
-        "id",
-        "title",
-        "fulltitle",
-        "description",
-        "channel",
-        "channel_id",
-        "uploader",
-        "uploader_id",
-        "upload_date",
-        "release_timestamp",
-        "timestamp",
-        "duration",
-        "width",
-        "height",
-        "fps",
-        "ext",
-        "format",
-        "format_id",
-        "vcodec",
-        "acodec",
-        "abr",
-        "vbr",
-        "tbr",
-        "filesize_approx",
-        "webpage_url",
-        "original_url",
-        "thumbnail",
-        "tags",
-        "categories",
-        "chapters",
-        "view_count",
-        "like_count",
-        "comment_count",
-        "availability",
-        "live_status",
-        "was_live",
-        "language",
-        "subtitles",
-        "automatic_captions",
-    )
-    return {key: raw[key] for key in keys if key in raw}
 
 
 class ArchiveService:
@@ -213,7 +168,7 @@ class ArchiveService:
             archived_at = utc_now_iso()
             write_sidecar(
                 paths,
-                source=_source_snapshot(download.info.raw),
+                source=source_snapshot(download.info.raw),
                 archive={
                     "downloaded_at": archived_at,
                     "job_id": job.id,
@@ -226,15 +181,24 @@ class ArchiveService:
                 },
             )
 
+            browse = extract_browse_fields(
+                download.info.raw,
+                fallback_url=download.info.url,
+            )
             video = self.db.insert_video(
                 platform=download.info.platform,
                 platform_video_id=download.info.video_id,
-                title=download.info.title,
-                url=download.info.url,
+                title=browse.title or download.info.title,
+                url=browse.url or download.info.url,
                 media_relpath=relpath_under(self.archive_root, media_file),
                 metadata_relpath=relpath_under(self.archive_root, paths.metadata_path),
                 checksum_sha256=checksum,
                 archived_at=archived_at,
+                channel=browse.channel,
+                channel_id=browse.channel_id,
+                upload_date=browse.upload_date,
+                metadata_incomplete=browse.incomplete,
+                metadata_gaps=browse.gaps,
             )
             return self.db.update_job(
                 job.id,
@@ -297,8 +261,29 @@ class ArchiveService:
     def list_jobs(self, *, limit: int = 50) -> list[JobRow]:
         return self.db.list_jobs(limit=limit)
 
-    def list_videos(self, *, limit: int = 50, q: str | None = None) -> list[VideoRow]:
-        return self.db.list_videos(limit=limit, q=q)
+    def list_videos(
+        self,
+        *,
+        limit: int = 50,
+        q: str | None = None,
+        channel_ids: list[str] | None = None,
+        sort: str = "upload_date",
+        order: str = "desc",
+        incomplete_only: bool = False,
+    ) -> list[VideoRow]:
+        from lones_vdl.db import SortField, SortOrder
+
+        allowed_sort = ("upload_date", "title", "archived_at")
+        sort_field: SortField = sort if sort in allowed_sort else "upload_date"
+        sort_order: SortOrder = order if order in ("asc", "desc") else "desc"
+        return self.db.list_videos(
+            limit=limit,
+            q=q,
+            channel_ids=channel_ids,
+            sort=sort_field,
+            order=sort_order,
+            incomplete_only=incomplete_only,
+        )
 
     def get_video(self, platform: str, platform_video_id: str) -> VideoRow | None:
         return self.db.get_video(platform, platform_video_id)

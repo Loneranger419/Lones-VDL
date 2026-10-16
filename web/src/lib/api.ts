@@ -9,6 +9,11 @@ export type VideoSummary = {
   checksum_sha256: string | null;
   archived_at: string;
   has_thumbnail: boolean;
+  channel: string | null;
+  channel_id: string | null;
+  upload_date: string | null;
+  metadata_incomplete: boolean;
+  metadata_gaps: string[];
 };
 
 export type PlaybackInfo = {
@@ -27,6 +32,14 @@ export type VideoDetail = VideoSummary & {
   playback: PlaybackInfo | null;
 };
 
+export type Channel = {
+  platform: string;
+  channel_id: string;
+  channel: string | null;
+  video_count: number;
+  favorited: boolean;
+};
+
 export type Job = {
   id: string;
   url: string;
@@ -37,9 +50,9 @@ export type Job = {
   error_code: string | null;
   error_message: string | null;
   video_id: number | null;
-  attempts: number;
   created_at: string;
   updated_at: string;
+  attempts: number;
 };
 
 export type PublicConfig = {
@@ -62,6 +75,23 @@ export type CookieFilterResult = {
   lines_before: number;
   lines_after: number;
   backup_path: string | null;
+};
+
+export type RefreshResult = {
+  platform: string;
+  platform_video_id: string;
+  status: string;
+  detail: string;
+  gaps: string[];
+};
+
+export type ListVideosParams = {
+  q?: string;
+  channelIds?: string[];
+  sort?: "upload_date" | "title" | "archived_at";
+  order?: "asc" | "desc";
+  incompleteOnly?: boolean;
+  limit?: number;
 };
 
 const TOKEN_KEY = "lones_vdl_api_token";
@@ -124,12 +154,43 @@ export async function filterCookies(): Promise<CookieFilterResult> {
   return res.json();
 }
 
-export async function listVideos(q?: string): Promise<VideoSummary[]> {
-  const params = new URLSearchParams();
-  if (q) params.set("q", q);
-  const qs = params.toString();
-  const res = await apiFetch(`/api/videos${qs ? `?${qs}` : ""}`);
+export async function listVideos(params: ListVideosParams = {}): Promise<VideoSummary[]> {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set("q", params.q);
+  if (params.sort) qs.set("sort", params.sort);
+  if (params.order) qs.set("order", params.order);
+  if (params.incompleteOnly) qs.set("incomplete_only", "true");
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  for (const id of params.channelIds ?? []) {
+    qs.append("channel_id", id);
+  }
+  const query = qs.toString();
+  const res = await apiFetch(`/api/videos${query ? `?${query}` : ""}`);
   if (!res.ok) throw new Error(await readError(res, "Failed to list videos"));
+  return res.json();
+}
+
+export async function listChannels(platform?: string): Promise<Channel[]> {
+  const qs = platform ? `?platform=${encodeURIComponent(platform)}` : "";
+  const res = await apiFetch(`/api/channels${qs}`);
+  if (!res.ok) throw new Error(await readError(res, "Failed to list channels"));
+  return res.json();
+}
+
+export async function setChannelFavorite(
+  platform: string,
+  channelId: string,
+  favorited: boolean,
+  channel?: string | null,
+): Promise<Channel> {
+  const res = await apiFetch(
+    `/api/channels/${encodeURIComponent(platform)}/${encodeURIComponent(channelId)}/favorite`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ favorited, channel: channel ?? null }),
+    },
+  );
+  if (!res.ok) throw new Error(await readError(res, "Failed to update favorite"));
   return res.json();
 }
 
@@ -138,6 +199,38 @@ export async function getVideo(platform: string, id: string): Promise<VideoDetai
     `/api/videos/${encodeURIComponent(platform)}/${encodeURIComponent(id)}`,
   );
   if (!res.ok) throw new Error(await readError(res, "Failed to load video"));
+  return res.json();
+}
+
+export async function listRelated(
+  platform: string,
+  id: string,
+  limit = 12,
+): Promise<VideoSummary[]> {
+  const res = await apiFetch(
+    `/api/videos/${encodeURIComponent(platform)}/${encodeURIComponent(id)}/related?limit=${limit}`,
+  );
+  if (!res.ok) throw new Error(await readError(res, "Failed to load related"));
+  return res.json();
+}
+
+export async function refreshVideoMetadata(
+  platform: string,
+  id: string,
+): Promise<RefreshResult> {
+  const res = await apiFetch(
+    `/api/videos/${encodeURIComponent(platform)}/${encodeURIComponent(id)}/refresh`,
+    { method: "POST" },
+  );
+  if (!res.ok) throw new Error(await readError(res, "Failed to refresh metadata"));
+  return res.json();
+}
+
+export async function refreshIncompleteMetadata(limit = 50): Promise<RefreshResult[]> {
+  const res = await apiFetch(`/api/metadata/refresh-incomplete?limit=${limit}`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await readError(res, "Failed to refresh incomplete metadata"));
   return res.json();
 }
 
@@ -210,4 +303,9 @@ export function thumbnailUrl(platform: string, id: string): string {
 
 export function isActiveJob(status: string): boolean {
   return status === "queued" || status === "downloading";
+}
+
+export function formatUploadDate(value: string | null | undefined): string {
+  if (!value || !/^\d{8}$/.test(value)) return "Unknown date";
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
 }

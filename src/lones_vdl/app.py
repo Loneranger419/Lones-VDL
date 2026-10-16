@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -19,12 +20,16 @@ from lones_vdl.errors import DuplicateArchiveError
 from lones_vdl.integrity import rescan_archive, verify_archive
 from lones_vdl.library import build_detail, resolve_media_file, to_video_response
 from lones_vdl.media import FfmpegMediaProcessor, MediaError, MediaProcessor, find_thumbnail
+from lones_vdl.metadata_refresh import refresh_incomplete_metadata, refresh_video_metadata
 from lones_vdl.platform.ytdlp import YtdlpAdapter, YtdlpCliAdapter
 from lones_vdl.schemas import (
+    ChannelResponse,
     CookieFilterResponse,
     EnqueueRequest,
+    FavoriteRequest,
     JobResponse,
     PublicConfigResponse,
+    RefreshResultResponse,
     RescanItemResponse,
     RescanReportResponse,
     VerifyItemResponse,
@@ -256,9 +261,74 @@ def create_app(
         response_model=list[VideoResponse],
         dependencies=[Depends(require_token)],
     )
-    def list_videos(limit: int = 50, q: str | None = None) -> list[VideoResponse]:
-        videos = service.list_videos(limit=limit, q=q)
+    def list_videos(
+        limit: int = 100,
+        q: str | None = None,
+        channel_id: Annotated[list[str] | None, Query()] = None,
+        sort: str = "upload_date",
+        order: str = "desc",
+        incomplete_only: bool = False,
+    ) -> list[VideoResponse]:
+        videos = service.list_videos(
+            limit=limit,
+            q=q,
+            channel_ids=channel_id,
+            sort=sort,
+            order=order,
+            incomplete_only=incomplete_only,
+        )
         return [to_video_response(settings.archive_root, v) for v in videos]
+
+    @app.get(
+        "/api/channels",
+        response_model=list[ChannelResponse],
+        dependencies=[Depends(require_token)],
+    )
+    def list_channels(platform: str | None = None) -> list[ChannelResponse]:
+        return [
+            ChannelResponse(
+                platform=c.platform,
+                channel_id=c.channel_id,
+                channel=c.channel,
+                video_count=c.video_count,
+                favorited=c.favorited,
+            )
+            for c in db.list_channels(platform=platform)
+        ]
+
+    @app.put(
+        "/api/channels/{platform}/{channel_id}/favorite",
+        response_model=ChannelResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def set_channel_favorite(
+        platform: str,
+        channel_id: str,
+        body: FavoriteRequest,
+    ) -> ChannelResponse:
+        db.set_channel_favorite(
+            platform=platform,
+            channel_id=channel_id,
+            channel=body.channel,
+            favorited=body.favorited,
+        )
+        channels = {(c.platform, c.channel_id): c for c in db.list_channels(platform=platform)}
+        row = channels.get((platform, channel_id))
+        if row is None:
+            return ChannelResponse(
+                platform=platform,
+                channel_id=channel_id,
+                channel=body.channel,
+                video_count=0,
+                favorited=body.favorited,
+            )
+        return ChannelResponse(
+            platform=row.platform,
+            channel_id=row.channel_id,
+            channel=row.channel,
+            video_count=row.video_count,
+            favorited=row.favorited,
+        )
 
     @app.get(
         "/api/videos/{platform}/{platform_video_id}",
@@ -278,6 +348,73 @@ def create_app(
             )
         except MediaError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get(
+        "/api/videos/{platform}/{platform_video_id}/related",
+        response_model=list[VideoResponse],
+        dependencies=[Depends(require_token)],
+    )
+    def related_videos(
+        platform: str,
+        platform_video_id: str,
+        limit: int = 12,
+    ) -> list[VideoResponse]:
+        video = service.get_video(platform, platform_video_id)
+        if video is None:
+            raise HTTPException(status_code=404, detail="Video not found")
+        related = db.list_related(
+            platform=platform,
+            channel_id=video.channel_id,
+            exclude_video_id=platform_video_id,
+            limit=limit,
+        )
+        return [to_video_response(settings.archive_root, v) for v in related]
+
+    @app.post(
+        "/api/videos/{platform}/{platform_video_id}/refresh",
+        response_model=RefreshResultResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def refresh_one_video(platform: str, platform_video_id: str) -> RefreshResultResponse:
+        video = service.get_video(platform, platform_video_id)
+        if video is None:
+            raise HTTPException(status_code=404, detail="Video not found")
+        result = refresh_video_metadata(
+            db=db,
+            archive_root=settings.archive_root,
+            adapter=ytdlp,
+            video=video,
+        )
+        return RefreshResultResponse(
+            platform=result.platform,
+            platform_video_id=result.platform_video_id,
+            status=result.status,
+            detail=result.detail,
+            gaps=list(result.gaps),
+        )
+
+    @app.post(
+        "/api/metadata/refresh-incomplete",
+        response_model=list[RefreshResultResponse],
+        dependencies=[Depends(require_token)],
+    )
+    def refresh_incomplete(limit: int = 50) -> list[RefreshResultResponse]:
+        results = refresh_incomplete_metadata(
+            db=db,
+            archive_root=settings.archive_root,
+            adapter=ytdlp,
+            limit=limit,
+        )
+        return [
+            RefreshResultResponse(
+                platform=r.platform,
+                platform_video_id=r.platform_video_id,
+                status=r.status,
+                detail=r.detail,
+                gaps=list(r.gaps),
+            )
+            for r in results
+        ]
 
     @app.get(
         "/api/videos/{platform}/{platform_video_id}/thumbnail",
