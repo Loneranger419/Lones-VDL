@@ -84,11 +84,11 @@ docker compose up --build
 
 ## Roadmap (high level)
 
-1. Core YouTube single-video archive path (API + sidecars + SQLite)
-2. Web library + remux-only playback
-3. Web job control
+1. Core YouTube single-video archive path (API + sidecars + SQLite) — done
+2. Web library + remux-only playback — done
+3. Web job control — done
 4. Integrity rescan/verify
-5. Thin desktop client
+5. ~~Desktop client~~ — cancelled (LAN/VPN web UI only)
 
 ## License
 
