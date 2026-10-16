@@ -19,10 +19,15 @@ class Settings(BaseSettings):
     archive_root: Path = Path("./data/archive")
     database_path: Path = Path("./data/lones_vdl.db")
     ytdlp_cookies_file: Path | None = None
+    # Comma-separated: youtube now; add twitch when that adapter ships.
+    cookie_platforms: str = "youtube"
     ytdlp_executable: str = "yt-dlp"
     download_concurrency: int = 1
     download_max_attempts: int = 3
     default_quality: str = "best"
+
+    def cookie_platform_list(self) -> list[str]:
+        return [p.strip().lower() for p in self.cookie_platforms.split(",") if p.strip()]
 
 
 def get_settings() -> Settings:

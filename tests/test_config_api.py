@@ -20,5 +20,7 @@ def test_config_requires_token_and_hides_secrets(tmp_env: Settings) -> None:
         assert body["default_quality"] == "best"
         assert "archive" in body["archive_root"].replace("\\", "/")
         assert body["cookies_configured"] is False
+        assert body["cookie_platforms"] == ["youtube"]
+        assert body["cookie_count"] is None
         assert "best" in body["quality_presets"]
         assert "api_token" not in body

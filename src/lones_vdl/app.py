@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from lones_vdl import __version__
 from lones_vdl.auth import make_require_api_token
 from lones_vdl.config import Settings, get_settings
+from lones_vdl.cookies import count_cookie_rows, filter_netscape_cookies
 from lones_vdl.db import Database, JobRow
 from lones_vdl.download.service import ArchiveService
 from lones_vdl.errors import DuplicateArchiveError
@@ -19,6 +20,7 @@ from lones_vdl.library import build_detail, resolve_media_file, to_video_respons
 from lones_vdl.media import FfmpegMediaProcessor, MediaError, MediaProcessor, find_thumbnail
 from lones_vdl.platform.ytdlp import YtdlpAdapter, YtdlpCliAdapter
 from lones_vdl.schemas import (
+    CookieFilterResponse,
     EnqueueRequest,
     JobResponse,
     PublicConfigResponse,
@@ -106,13 +108,51 @@ def create_app(
     )
     def public_config() -> PublicConfigResponse:
         cookies = settings.ytdlp_cookies_file
+        configured = bool(cookies and Path(cookies).is_file())
         return PublicConfigResponse(
             default_quality=settings.default_quality,
             archive_root=str(settings.archive_root.resolve()),
             download_concurrency=settings.download_concurrency,
             download_max_attempts=settings.download_max_attempts,
-            cookies_configured=bool(cookies and Path(cookies).is_file()),
+            cookies_configured=configured,
+            cookie_platforms=settings.cookie_platform_list(),
+            cookie_count=count_cookie_rows(Path(cookies)) if configured and cookies else None,
             quality_presets=QUALITY_PRESETS,
+        )
+
+    @app.post(
+        "/api/cookies/filter",
+        response_model=CookieFilterResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def filter_cookies() -> CookieFilterResponse:
+        """Rewrite the configured cookies file to archive-relevant domains only."""
+        cookies = settings.ytdlp_cookies_file
+        if cookies is None:
+            raise HTTPException(
+                status_code=400,
+                detail="LONES_VDL_YTDLP_COOKIES_FILE is not configured",
+            )
+        path = Path(cookies)
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail=f"Cookies file not found: {path}")
+        try:
+            result = filter_netscape_cookies(
+                path,
+                platforms=settings.cookie_platform_list(),
+                write_backup=True,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return CookieFilterResponse(
+            platforms=result.platforms,
+            domains_allowed=result.domains_allowed,
+            cookies_before=result.cookies_before,
+            cookies_after=result.cookies_after,
+            cookies_removed=result.cookies_removed,
+            lines_before=result.lines_before,
+            lines_after=result.lines_after,
+            backup_path=result.backup_path,
         )
 
     @app.post(

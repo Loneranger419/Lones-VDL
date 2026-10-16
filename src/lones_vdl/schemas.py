@@ -70,4 +70,17 @@ class PublicConfigResponse(BaseModel):
     download_concurrency: int
     download_max_attempts: int
     cookies_configured: bool
+    cookie_platforms: list[str]
+    cookie_count: int | None = None
     quality_presets: list[str]
+
+
+class CookieFilterResponse(BaseModel):
+    platforms: list[str]
+    domains_allowed: list[str]
+    cookies_before: int
+    cookies_after: int
+    cookies_removed: int
+    lines_before: int
+    lines_after: int
+    backup_path: str | None = None

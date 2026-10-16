@@ -91,6 +91,8 @@ def tmp_env(tmp_path: Path) -> Settings:
         api_token="test-token",
         archive_root=archive,
         database_path=db_path,
+        ytdlp_cookies_file=None,
+        cookie_platforms="youtube",
         download_concurrency=1,
         download_max_attempts=2,
     )

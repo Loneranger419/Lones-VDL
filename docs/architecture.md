@@ -25,7 +25,7 @@ Implementation follows milestones; this document is the source of truth for boun
 | Web UI | Svelte + Vite + TypeScript |
 | Auth (API) | Shared bearer token; LAN bind |
 | YouTube auth | Optional operator-supplied cookies file for yt-dlp |
-| Desktop | Thin remote client after web job control (Milestone 5) |
+| Desktop | **Out of scope** — LAN/VPN web UI is sufficient; no separate desktop client |
 
 ## Components
 
@@ -35,9 +35,8 @@ Implementation follows milestones; this document is the source of truth for boun
 4. **Integrity** — checksums; rescan/import; DB rebuildable from sidecars.
 5. **Metadata index** — SQLite for search/jobs; sidecar JSON is portable truth.
 6. **Media processing** — ffprobe; remux for browser play when possible.
-7. **HTTP API** — FastAPI; shared by web and future desktop.
-8. **Web UI** — browse, play, enqueue (primary operator UI).
-9. **Desktop** — deferred thin client against the same API.
+7. **HTTP API** — FastAPI surface for the web UI (and optional CLI).
+8. **Web UI** — browse, play, enqueue, jobs (sole operator GUI).
 
 ## Data flow (single YouTube video)
 
@@ -80,11 +79,13 @@ Implementation follows milestones; this document is the source of truth for boun
 2. Web library + remux playback + token auth — done
 3. Web job control — done
 4. Integrity rescan/verify
-5. Thin desktop client
+5. ~~Thin desktop client~~ — cancelled (web over LAN/VPN instead)
 
 ## Non-goals (near term)
 
+- Separate desktop application (Tauri/Electron)
 - Microservices, Redis/Celery unless proven necessary
 - Active livestream recording
 - Transcoding pipeline (re-encode)
 - Multi-user tenancy / public SaaS
+- Public internet exposure (LAN + VPN only)

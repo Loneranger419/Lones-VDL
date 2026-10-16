@@ -2,6 +2,7 @@
   import {
     clearToken,
     enqueueJob,
+    filterCookies,
     getConfig,
     getToken,
     getVideo,
@@ -29,6 +30,8 @@
   let quality = $state("best");
   let enqueueBusy = $state(false);
   let enqueueMsg = $state("");
+  let cookieBusy = $state(false);
+  let cookieMsg = $state("");
   let error = $state("");
   let loading = $state(false);
 
@@ -106,6 +109,30 @@
     }
   }
 
+  async function runCookieFilter() {
+    if (!config?.cookies_configured) return;
+    const platforms = (config.cookie_platforms ?? ["youtube"]).join(", ");
+    const ok = confirm(
+      `Filter the cookies file to only ${platforms} domains?\n\n` +
+        "A .bak backup will be written next to the cookies file. Cookie values are never shown in the UI.",
+    );
+    if (!ok) return;
+    cookieBusy = true;
+    cookieMsg = "";
+    error = "";
+    try {
+      const result = await filterCookies();
+      cookieMsg =
+        `Kept ${result.cookies_after} of ${result.cookies_before} cookies` +
+        ` (removed ${result.cookies_removed}) for ${result.platforms.join(", ")}.`;
+      config = await getConfig();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      cookieBusy = false;
+    }
+  }
+
   $effect(() => {
     if (authed) {
       void bootstrap();
@@ -158,14 +185,24 @@
           {#if config}
             Archive: <code>{config.archive_root}</code>
             · concurrency {config.download_concurrency}
-            · cookies {config.cookies_configured ? "yes" : "no"}
+            · cookies {config.cookies_configured
+              ? `yes (${config.cookie_count ?? "?"} for ${config.cookie_platforms.join(", ")})`
+              : "no"}
           {:else}
             Archive library
           {/if}
         </p>
       </div>
-      <button type="button" class="ghost" onclick={logout}>Clear token</button>
+      <div class="header-actions">
+        {#if config?.cookies_configured}
+          <button type="button" class="ghost" disabled={cookieBusy} onclick={() => void runCookieFilter()}>
+            {cookieBusy ? "Filtering…" : "Filter cookies"}
+          </button>
+        {/if}
+        <button type="button" class="ghost" onclick={logout}>Clear token</button>
+      </div>
     </header>
+    {#if cookieMsg}<p class="ok cookie-msg">{cookieMsg}</p>{/if}
 
     <section class="enqueue">
       <h2>Add download</h2>
@@ -408,6 +445,15 @@
     justify-content: space-between;
     align-items: flex-start;
     margin-bottom: 1rem;
+    gap: 1rem;
+  }
+  .header-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+  .cookie-msg {
+    margin: -0.5rem 0 1rem;
   }
   h1,
   h2 {

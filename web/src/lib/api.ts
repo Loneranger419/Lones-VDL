@@ -48,7 +48,20 @@ export type PublicConfig = {
   download_concurrency: number;
   download_max_attempts: number;
   cookies_configured: boolean;
+  cookie_platforms: string[];
+  cookie_count: number | null;
   quality_presets: string[];
+};
+
+export type CookieFilterResult = {
+  platforms: string[];
+  domains_allowed: string[];
+  cookies_before: number;
+  cookies_after: number;
+  cookies_removed: number;
+  lines_before: number;
+  lines_after: number;
+  backup_path: string | null;
 };
 
 const TOKEN_KEY = "lones_vdl_api_token";
@@ -102,6 +115,12 @@ async function readError(res: Response, fallback: string): Promise<string> {
 export async function getConfig(): Promise<PublicConfig> {
   const res = await apiFetch("/api/config");
   if (!res.ok) throw new Error(await readError(res, "Failed to load config"));
+  return res.json();
+}
+
+export async function filterCookies(): Promise<CookieFilterResult> {
+  const res = await apiFetch("/api/cookies/filter", { method: "POST" });
+  if (!res.ok) throw new Error(await readError(res, "Failed to filter cookies"));
   return res.json();
 }
 

@@ -21,8 +21,7 @@ Keep these layers separate (see `docs/architecture.md`):
 | metadata / DB | SQLite index; sidecars remain portable source of truth |
 | media | FFmpeg probe/remux; never overwrite archival originals |
 | API | FastAPI HTTP surface |
-| web | Svelte UI consuming the API |
-| desktop | thin client only (not yet) |
+| web | Svelte UI consuming the API (sole GUI; no desktop app) |
 
 Do not add microservices, Redis, or Celery without an explicit decision.
 
@@ -31,6 +30,8 @@ Do not add microservices, Redis, or Celery without an explicit decision.
 - **yt-dlp** and **FFmpeg** are external dependencies (pinned in deploy docs/image).
 - No custom downloaders; no DRM bypass; no automated credential harvesting.
 - Cookies: optional operator-supplied Netscape cookie file via config; never commit or log secrets.
+- Cookie filter (`POST /api/cookies/filter`) keeps domains for `LONES_VDL_COOKIE_PLATFORMS`
+  (youtube now; add twitch later). Never return cookie values from the API.
 
 ## Data and paths
 
@@ -61,4 +62,5 @@ Real YouTube downloads are manual/gated (network, ToS, flakes) — mock yt-dlp i
 
 ## Out of scope until milestones say otherwise
 
-Twitch, playlists/channels, live recording, transcoding, multi-user auth, desktop app.
+Twitch, playlists/channels, live recording, transcoding, multi-user auth.
+Desktop app cancelled — use the web UI over LAN/VPN.
