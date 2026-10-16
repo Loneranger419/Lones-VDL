@@ -52,8 +52,24 @@ CREATE TABLE IF NOT EXISTS channel_favorites (
     PRIMARY KEY (platform, channel_id)
 );
 
+CREATE TABLE IF NOT EXISTS channel_watches (
+    platform TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    channel TEXT,
+    channel_url TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_checked_at TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (platform, channel_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 """
+
+_JOB_COLUMNS = {
+    "watch_new": "INTEGER NOT NULL DEFAULT 0",
+    "job_kind": "TEXT",
+}
 
 # Created after column migration so existing DBs (pre-browse fields) can start.
 _INDEXES_AFTER_MIGRATE = """
@@ -107,6 +123,8 @@ class JobRow:
     attempts: int
     created_at: str
     updated_at: str
+    watch_new: bool = False
+    job_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -116,6 +134,20 @@ class ChannelRow:
     channel: str | None
     video_count: int
     favorited: bool
+    watching: bool = False
+    last_checked_at: str | None = None
+    channel_url: str | None = None
+
+
+@dataclass(frozen=True)
+class ChannelWatchRow:
+    platform: str
+    channel_id: str
+    channel: str | None
+    channel_url: str | None
+    enabled: bool
+    last_checked_at: str | None
+    created_at: str
 
 
 SortField = Literal["upload_date", "title", "archived_at"]
@@ -142,6 +174,10 @@ class Database:
         for column, decl in _VIDEO_COLUMNS.items():
             if column not in existing:
                 self._conn.execute(f"ALTER TABLE videos ADD COLUMN {column} {decl}")
+        job_cols = {row["name"] for row in self._conn.execute("PRAGMA table_info(jobs)").fetchall()}
+        for column, decl in _JOB_COLUMNS.items():
+            if column not in job_cols:
+                self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {decl}")
 
     def close(self) -> None:
         with self._lock:
@@ -223,6 +259,8 @@ class Database:
         status: str = "queued",
         platform: str | None = None,
         platform_video_id: str | None = None,
+        watch_new: bool = False,
+        job_kind: str | None = None,
     ) -> JobRow:
         now = utc_now_iso()
         with self._lock:
@@ -230,10 +268,21 @@ class Database:
                 """
                 INSERT INTO jobs (
                     id, url, platform, platform_video_id, quality_preference,
-                    status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    status, created_at, updated_at, watch_new, job_kind
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (job_id, url, platform, platform_video_id, quality_preference, status, now, now),
+                (
+                    job_id,
+                    url,
+                    platform,
+                    platform_video_id,
+                    quality_preference,
+                    status,
+                    now,
+                    now,
+                    1 if watch_new else 0,
+                    job_kind,
+                ),
             )
             self._conn.commit()
             row = self._conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
@@ -343,13 +392,19 @@ class Database:
                 SELECT v.platform, v.channel_id,
                        MAX(v.channel) AS channel,
                        COUNT(*) AS video_count,
-                       CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS favorited
+                       CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS favorited,
+                       CASE WHEN w.enabled = 1 THEN 1 ELSE 0 END AS watching,
+                       w.last_checked_at AS last_checked_at,
+                       w.channel_url AS channel_url
                 FROM videos v
                 LEFT JOIN channel_favorites f
                   ON f.platform = v.platform AND f.channel_id = v.channel_id
+                LEFT JOIN channel_watches w
+                  ON w.platform = v.platform AND w.channel_id = v.channel_id
                 {where}
                 GROUP BY v.platform, v.channel_id
-                ORDER BY favorited DESC, LOWER(COALESCE(MAX(v.channel), v.channel_id)) ASC
+                ORDER BY watching DESC, favorited DESC,
+                         LOWER(COALESCE(MAX(v.channel), v.channel_id)) ASC
                 """,
                 params,
             ).fetchall()
@@ -360,9 +415,89 @@ class Database:
                     channel=r["channel"],
                     video_count=int(r["video_count"]),
                     favorited=bool(r["favorited"]),
+                    watching=bool(r["watching"]),
+                    last_checked_at=r["last_checked_at"],
+                    channel_url=r["channel_url"],
                 )
                 for r in rows
             ]
+
+    def set_channel_watch(
+        self,
+        *,
+        platform: str,
+        channel_id: str,
+        channel: str | None,
+        channel_url: str | None,
+        watching: bool,
+    ) -> None:
+        with self._lock:
+            if watching:
+                self._conn.execute(
+                    """
+                    INSERT INTO channel_watches (
+                        platform, channel_id, channel, channel_url, enabled, created_at
+                    ) VALUES (?, ?, ?, ?, 1, ?)
+                    ON CONFLICT(platform, channel_id) DO UPDATE SET
+                        channel = COALESCE(excluded.channel, channel_watches.channel),
+                        channel_url = COALESCE(excluded.channel_url, channel_watches.channel_url),
+                        enabled = 1
+                    """,
+                    (platform, channel_id, channel, channel_url, utc_now_iso()),
+                )
+            else:
+                self._conn.execute(
+                    """
+                    UPDATE channel_watches SET enabled = 0
+                    WHERE platform = ? AND channel_id = ?
+                    """,
+                    (platform, channel_id),
+                )
+                # Keep row for last_checked history; insert disabled if missing
+                existing = self._conn.execute(
+                    "SELECT 1 FROM channel_watches WHERE platform = ? AND channel_id = ?",
+                    (platform, channel_id),
+                ).fetchone()
+                if existing is None:
+                    self._conn.execute(
+                        """
+                        INSERT INTO channel_watches (
+                            platform, channel_id, channel, channel_url, enabled, created_at
+                        ) VALUES (?, ?, ?, ?, 0, ?)
+                        """,
+                        (platform, channel_id, channel, channel_url, utc_now_iso()),
+                    )
+            self._conn.commit()
+
+    def list_enabled_watches(self) -> list[ChannelWatchRow]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM channel_watches
+                WHERE enabled = 1
+                ORDER BY LOWER(COALESCE(channel, channel_id)) ASC
+                """
+            ).fetchall()
+            return [_watch_from_row(r) for r in rows]
+
+    def touch_channel_watch(
+        self,
+        *,
+        platform: str,
+        channel_id: str,
+        last_checked_at: str | None = None,
+    ) -> None:
+        checked = last_checked_at or utc_now_iso()
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE channel_watches
+                SET last_checked_at = ?
+                WHERE platform = ? AND channel_id = ?
+                """,
+                (checked, platform, channel_id),
+            )
+            self._conn.commit()
 
     def set_channel_favorite(
         self,
@@ -459,6 +594,27 @@ class Database:
         assert updated is not None
         return updated, "updated"
 
+    def clear_job_video_refs(self, video_id: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE jobs SET video_id = NULL WHERE video_id = ?",
+                (video_id,),
+            )
+            self._conn.commit()
+
+    def has_active_job_for_video(self, platform: str, platform_video_id: str) -> bool:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT 1 FROM jobs
+                WHERE platform = ? AND platform_video_id = ?
+                  AND status IN ('queued', 'downloading', 'expanding')
+                LIMIT 1
+                """,
+                (platform, platform_video_id),
+            ).fetchone()
+            return row is not None
+
     def delete_video(self, platform: str, platform_video_id: str) -> bool:
         with self._lock:
             cur = self._conn.execute(
@@ -548,6 +704,7 @@ def _video_from_row(row: sqlite3.Row) -> VideoRow:
 
 
 def _job_from_row(row: sqlite3.Row) -> JobRow:
+    keys = row.keys()
     return JobRow(
         id=row["id"],
         url=row["url"],
@@ -561,4 +718,18 @@ def _job_from_row(row: sqlite3.Row) -> JobRow:
         attempts=row["attempts"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        watch_new=bool(row["watch_new"]) if "watch_new" in keys else False,
+        job_kind=row["job_kind"] if "job_kind" in keys else None,
+    )
+
+
+def _watch_from_row(row: sqlite3.Row) -> ChannelWatchRow:
+    return ChannelWatchRow(
+        platform=row["platform"],
+        channel_id=row["channel_id"],
+        channel=row["channel"],
+        channel_url=row["channel_url"],
+        enabled=bool(row["enabled"]),
+        last_checked_at=row["last_checked_at"],
+        created_at=row["created_at"],
     )

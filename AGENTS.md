@@ -62,5 +62,7 @@ Real YouTube downloads are manual/gated (network, ToS, flakes) — mock yt-dlp i
 
 ## Out of scope until milestones say otherwise
 
-Twitch, playlists/channels, live recording, transcoding, multi-user auth.
+Twitch, live recording, transcoding, multi-user auth.
 Desktop app cancelled — use the web UI over LAN/VPN.
+
+Playlists/channel uploads + optional channel watch are in scope (expand into per-video jobs).

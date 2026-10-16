@@ -12,13 +12,19 @@ from lones_vdl import __version__
 from lones_vdl.channel_avatars import channel_url_from_source, ensure_channel_avatar
 from lones_vdl.db import Database, JobRow, VideoRow, utc_now_iso
 from lones_vdl.errors import (
+    ConflictError,
     DuplicateArchiveError,
     LonesVdlError,
     PermanentDownloadError,
     TransientDownloadError,
 )
 from lones_vdl.metadata_fields import extract_browse_fields, source_snapshot
-from lones_vdl.platform.ytdlp import YtdlpAdapter, parse_youtube_id
+from lones_vdl.platform.ytdlp import (
+    PlaylistListing,
+    YtdlpAdapter,
+    classify_youtube_url,
+    parse_youtube_id,
+)
 from lones_vdl.storage import (
     PLATFORM_YOUTUBE,
     discard_partial,
@@ -59,23 +65,35 @@ class ArchiveService:
         *,
         quality_preference: str = "best",
         auto_start: bool = True,
+        watch_new: bool = False,
     ) -> JobRow:
-        hint_id = parse_youtube_id(url)
-        if hint_id:
-            existing = self.db.get_video(PLATFORM_YOUTUBE, hint_id)
-            if existing is not None:
-                raise DuplicateArchiveError(
-                    f"Video {hint_id} is already archived",
-                    platform_video_id=hint_id,
-                )
-
-        job = self.db.create_job(
-            job_id=str(uuid.uuid4()),
-            url=url,
-            quality_preference=quality_preference,
-            platform=PLATFORM_YOUTUBE,
-            platform_video_id=hint_id,
-        )
+        kind = classify_youtube_url(url)
+        if kind == "video":
+            hint_id = parse_youtube_id(url)
+            if hint_id:
+                existing = self.db.get_video(PLATFORM_YOUTUBE, hint_id)
+                if existing is not None:
+                    raise DuplicateArchiveError(
+                        f"Video {hint_id} is already archived",
+                        platform_video_id=hint_id,
+                    )
+            job = self.db.create_job(
+                job_id=str(uuid.uuid4()),
+                url=url,
+                quality_preference=quality_preference,
+                platform=PLATFORM_YOUTUBE,
+                platform_video_id=hint_id,
+                job_kind="video",
+            )
+        else:
+            job = self.db.create_job(
+                job_id=str(uuid.uuid4()),
+                url=url,
+                quality_preference=quality_preference,
+                platform=PLATFORM_YOUTUBE,
+                watch_new=watch_new and kind == "channel",
+                job_kind=kind,
+            )
         if auto_start:
             self._executor.submit(self._process_job, job.id)
         return job
@@ -87,6 +105,61 @@ class ArchiveService:
             return None
         return self._run_job(job)
 
+    def check_watched_channels(self) -> list[dict[str, Any]]:
+        """Re-list enabled watches and enqueue any new uploads."""
+        reports: list[dict[str, Any]] = []
+        for watch in self.db.list_enabled_watches():
+            url = watch.channel_url
+            if not url:
+                # Fall back to channel page from id
+                if watch.channel_id.startswith("UC"):
+                    url = f"https://www.youtube.com/channel/{watch.channel_id}/videos"
+                else:
+                    reports.append(
+                        {
+                            "platform": watch.platform,
+                            "channel_id": watch.channel_id,
+                            "status": "skipped",
+                            "detail": "No channel_url stored",
+                            "enqueued": 0,
+                            "skipped": 0,
+                        }
+                    )
+                    continue
+            try:
+                listing = self.adapter.list_entries(url)
+                enqueued, skipped = self._fanout_listing(
+                    listing,
+                    quality_preference="best",
+                    auto_start=True,
+                )
+                self.db.touch_channel_watch(
+                    platform=watch.platform,
+                    channel_id=watch.channel_id,
+                )
+                reports.append(
+                    {
+                        "platform": watch.platform,
+                        "channel_id": watch.channel_id,
+                        "status": "ok",
+                        "detail": f"enqueued {enqueued}, skipped {skipped}",
+                        "enqueued": enqueued,
+                        "skipped": skipped,
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001 — watch poll must not die
+                reports.append(
+                    {
+                        "platform": watch.platform,
+                        "channel_id": watch.channel_id,
+                        "status": "failed",
+                        "detail": str(exc),
+                        "enqueued": 0,
+                        "skipped": 0,
+                    }
+                )
+        return reports
+
     def _process_job(self, job_id: str) -> None:
         if self._closed:
             return
@@ -94,12 +167,114 @@ class ArchiveService:
             job = self.db.get_job(job_id)
             if job is None or job.status != "queued":
                 return
-            job = self.db.update_job(job_id, status="downloading", attempts=job.attempts + 1)
+            kind = job.job_kind or classify_youtube_url(job.url)
+            next_status = "expanding" if kind in {"playlist", "channel"} else "downloading"
+            job = self.db.update_job(
+                job_id,
+                status=next_status,
+                attempts=job.attempts + 1,
+                job_kind=kind,
+            )
         result = self._run_job(job)
         if result.status == "queued" and result.attempts < self.max_attempts and not self._closed:
             self._executor.submit(self._process_job, job_id)
 
+    def _fanout_listing(
+        self,
+        listing: PlaylistListing,
+        *,
+        quality_preference: str,
+        auto_start: bool,
+    ) -> tuple[int, int]:
+        enqueued = 0
+        skipped = 0
+        for entry in listing.entries:
+            existing = self.db.get_video(PLATFORM_YOUTUBE, entry.video_id)
+            if existing is not None:
+                skipped += 1
+                continue
+            paths = item_paths(self.archive_root, PLATFORM_YOUTUBE, entry.video_id)
+            if paths.final_dir.exists() and any(paths.final_dir.glob("media.*")):
+                skipped += 1
+                continue
+            child = self.db.create_job(
+                job_id=str(uuid.uuid4()),
+                url=entry.url,
+                quality_preference=quality_preference,
+                platform=PLATFORM_YOUTUBE,
+                platform_video_id=entry.video_id,
+                job_kind="video",
+            )
+            enqueued += 1
+            if auto_start and not self._closed:
+                self._executor.submit(self._process_job, child.id)
+        return enqueued, skipped
+
+    def _run_expand_job(self, job: JobRow) -> JobRow:
+        listing = self.adapter.list_entries(job.url)
+        if job.watch_new and listing.kind == "channel" and listing.channel_id:
+            self.db.set_channel_watch(
+                platform=PLATFORM_YOUTUBE,
+                channel_id=listing.channel_id,
+                channel=listing.channel,
+                channel_url=listing.channel_url or listing.url,
+                watching=True,
+            )
+            self.db.touch_channel_watch(
+                platform=PLATFORM_YOUTUBE,
+                channel_id=listing.channel_id,
+            )
+        enqueued, skipped = self._fanout_listing(
+            listing,
+            quality_preference=job.quality_preference,
+            auto_start=True,
+        )
+        summary = f"Expanded {listing.kind}: enqueued {enqueued}, skipped {skipped}"
+        return self.db.update_job(
+            job.id,
+            status="completed",
+            platform=PLATFORM_YOUTUBE,
+            platform_video_id=listing.list_id or listing.channel_id,
+            job_kind=listing.kind,
+            error_code=None,
+            error_message=summary,
+        )
+
     def _run_job(self, job: JobRow) -> JobRow:
+        kind = job.job_kind or classify_youtube_url(job.url)
+        if kind in {"playlist", "channel"}:
+            try:
+                return self._run_expand_job(job)
+            except TransientDownloadError as exc:
+                attempts = job.attempts
+                if attempts < self.max_attempts:
+                    return self.db.update_job(
+                        job.id,
+                        status="queued",
+                        error_code=exc.code,
+                        error_message=str(exc),
+                    )
+                return self.db.update_job(
+                    job.id,
+                    status="failed",
+                    error_code=exc.code,
+                    error_message=str(exc),
+                )
+            except LonesVdlError as exc:
+                return self.db.update_job(
+                    job.id,
+                    status="failed",
+                    error_code=exc.code,
+                    error_message=str(exc),
+                )
+            except Exception as exc:  # noqa: BLE001
+                return self.db.update_job(
+                    job.id,
+                    status="failed",
+                    error_code="internal",
+                    error_message=str(exc),
+                )
+
         paths = None
         try:
             info = self.adapter.extract_info(job.url)
@@ -296,3 +471,29 @@ class ArchiveService:
 
     def get_video(self, platform: str, platform_video_id: str) -> VideoRow | None:
         return self.db.get_video(platform, platform_video_id)
+
+    def delete_video(self, platform: str, platform_video_id: str) -> VideoRow:
+        """Remove DB row and on-disk item directory (final + partial)."""
+        video = self.db.get_video(platform, platform_video_id)
+        if video is None:
+            raise PermanentDownloadError(
+                f"Video {platform}/{platform_video_id} not found",
+                code="not_found",
+            )
+        if self.db.has_active_job_for_video(platform, platform_video_id):
+            raise ConflictError(
+                f"Cannot delete {platform_video_id} while a job is queued or downloading"
+            )
+        paths = item_paths(self.archive_root, platform, platform_video_id)
+        self.db.clear_job_video_refs(video.id)
+        deleted = self.db.delete_video(platform, platform_video_id)
+        if not deleted:
+            raise PermanentDownloadError(
+                f"Video {platform}/{platform_video_id} not found",
+                code="not_found",
+            )
+        if paths.final_dir.exists():
+            shutil.rmtree(paths.final_dir)
+        if paths.partial_dir.exists():
+            shutil.rmtree(paths.partial_dir)
+        return video

@@ -40,3 +40,9 @@ class AuthConfigError(LonesVdlError):
     """Cookies missing or rejected by the provider."""
 
     code = "auth_required"
+
+
+class ConflictError(LonesVdlError):
+    """Operation refused due to current state (e.g. active download)."""
+
+    code = "conflict"

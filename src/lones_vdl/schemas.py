@@ -8,8 +8,12 @@ from pydantic import BaseModel, Field
 
 
 class EnqueueRequest(BaseModel):
-    url: str = Field(..., min_length=8, description="YouTube video URL")
+    url: str = Field(..., min_length=8, description="YouTube video, playlist, or channel URL")
     quality_preference: str = Field(default="best", min_length=1)
+    watch_new: bool = Field(
+        default=False,
+        description="When enqueueing a channel URL, enable watch-for-new-uploads",
+    )
 
 
 class JobResponse(BaseModel):
@@ -25,6 +29,8 @@ class JobResponse(BaseModel):
     attempts: int
     created_at: str
     updated_at: str
+    watch_new: bool = False
+    job_kind: str | None = None
 
 
 class VideoResponse(BaseModel):
@@ -68,11 +74,29 @@ class ChannelResponse(BaseModel):
     video_count: int
     favorited: bool
     has_thumbnail: bool = False
+    watching: bool = False
+    last_checked_at: str | None = None
+    channel_url: str | None = None
 
 
 class FavoriteRequest(BaseModel):
     favorited: bool = True
     channel: str | None = None
+
+
+class WatchRequest(BaseModel):
+    watching: bool = True
+    channel: str | None = None
+    channel_url: str | None = None
+
+
+class WatchCheckItem(BaseModel):
+    platform: str
+    channel_id: str
+    status: str
+    detail: str
+    enqueued: int
+    skipped: int
 
 
 class RefreshResultResponse(BaseModel):

@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     download_concurrency: int = 1
     download_max_attempts: int = 3
     default_quality: str = "best"
+    # Hours between automatic checks of channels with watch enabled (0 disables).
+    channel_watch_interval_hours: float = 6.0
 
     def cookie_platform_list(self) -> list[str]:
         return [p.strip().lower() for p in self.cookie_platforms.split(",") if p.strip()]

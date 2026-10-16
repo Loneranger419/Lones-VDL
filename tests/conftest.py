@@ -9,7 +9,12 @@ import pytest
 from lones_vdl.config import Settings
 from lones_vdl.db import Database
 from lones_vdl.download.service import ArchiveService
-from lones_vdl.platform.ytdlp import DownloadResult, VideoInfo
+from lones_vdl.platform.ytdlp import (
+    DownloadResult,
+    PlaylistEntry,
+    PlaylistListing,
+    VideoInfo,
+)
 
 
 class FakeYtdlpAdapter:
@@ -20,13 +25,18 @@ class FakeYtdlpAdapter:
         title: str = "Test Video",
         fail_extract: Exception | None = None,
         fail_download: Exception | None = None,
+        playlist_entries: list[PlaylistEntry] | None = None,
+        list_kind: str = "playlist",
     ) -> None:
         self.video_id = video_id
         self.title = title
         self.fail_extract = fail_extract
         self.fail_download = fail_download
+        self.playlist_entries = playlist_entries
+        self.list_kind = list_kind
         self.extract_calls = 0
         self.download_calls = 0
+        self.list_calls = 0
 
     def extract_info(self, url: str) -> VideoInfo:
         self.extract_calls += 1
@@ -54,6 +64,29 @@ class FakeYtdlpAdapter:
         dest = dest_dir / "avatar.jpg"
         dest.write_bytes(b"fake-channel-avatar")
         return dest
+
+    def list_entries(self, url: str) -> PlaylistListing:
+        self.list_calls += 1
+        entries = self.playlist_entries or [
+            PlaylistEntry(
+                video_id=self.video_id,
+                url=f"https://www.youtube.com/watch?v={self.video_id}",
+                title=self.title,
+                channel="Test Channel",
+                channel_id="UC_test_channel",
+                channel_url="https://www.youtube.com/channel/UC_test_channel",
+            )
+        ]
+        return PlaylistListing(
+            kind=self.list_kind,  # type: ignore[arg-type]
+            list_id="PLtestlist",
+            title="Test List",
+            url=url,
+            channel="Test Channel",
+            channel_id="UC_test_channel",
+            channel_url="https://www.youtube.com/channel/UC_test_channel",
+            entries=tuple(entries),
+        )
 
     def download(
         self,
@@ -107,6 +140,7 @@ def tmp_env(tmp_path: Path) -> Settings:
         cookie_platforms="youtube",
         download_concurrency=1,
         download_max_attempts=2,
+        channel_watch_interval_hours=0,
     )
 
 

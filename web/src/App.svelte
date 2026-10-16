@@ -1,7 +1,9 @@
 <script lang="ts">
   import {
     channelThumbnailUrl,
+    checkWatchedChannels,
     clearToken,
+    deleteVideo,
     enqueueJob,
     filterCookies,
     formatUploadDate,
@@ -17,6 +19,7 @@
     refreshIncompleteMetadata,
     rescanArchive,
     setChannelFavorite,
+    setChannelWatch,
     setToken,
     thumbnailUrl,
     verifyIntegrity,
@@ -51,8 +54,11 @@
   let config = $state<PublicConfig | null>(null);
   let enqueueUrl = $state("");
   let quality = $state("best");
+  let watchNewOnEnqueue = $state(false);
   let enqueueBusy = $state(false);
   let enqueueMsg = $state("");
+  let watchBusy = $state(false);
+  let watchMsg = $state("");
   let cookieBusy = $state(false);
   let cookieMsg = $state("");
   let integrityBusy = $state(false);
@@ -205,11 +211,13 @@
     enqueueMsg = "";
     error = "";
     try {
-      const job = await enqueueJob(url, quality);
-      enqueueMsg = `Queued ${job.id.slice(0, 8)}… (${job.status})`;
+      const job = await enqueueJob(url, quality, watchNewOnEnqueue);
+      const kind = job.job_kind ? ` [${job.job_kind}]` : "";
+      enqueueMsg = `Queued ${job.id.slice(0, 8)}… (${job.status})${kind}`;
       enqueueUrl = "";
       downloadTab = "jobs";
       await refreshJobs();
+      await refreshChannels();
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -263,6 +271,69 @@
       error = err instanceof Error ? err.message : String(err);
     } finally {
       integrityBusy = false;
+    }
+  }
+
+  async function confirmDelete(v: VideoSummary | VideoDetail) {
+    const label = v.title ?? v.platform_video_id;
+    const ok = confirm(
+      `Delete “${label}” from the archive?\n\n` +
+        "This removes the database entry and deletes media/sidecars on disk. This cannot be undone.",
+    );
+    if (!ok) return;
+    loading = true;
+    error = "";
+    try {
+      await deleteVideo(v.platform, v.platform_video_id);
+      if (
+        watching?.platform === v.platform &&
+        watching.platform_video_id === v.platform_video_id
+      ) {
+        closeWatch();
+      }
+      if (
+        selected?.platform === v.platform &&
+        selected.platform_video_id === v.platform_video_id
+      ) {
+        selected = null;
+      }
+      await Promise.all([refreshVideos(), refreshChannels()]);
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function toggleWatch(ch: Channel) {
+    error = "";
+    try {
+      await setChannelWatch(ch.platform, ch.channel_id, !ch.watching, {
+        channel: ch.channel,
+        channelUrl: ch.channel_url,
+      });
+      await refreshChannels();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function runCheckWatched() {
+    watchBusy = true;
+    watchMsg = "";
+    error = "";
+    try {
+      const results = await checkWatchedChannels();
+      const enqueued = results.reduce((n, r) => n + r.enqueued, 0);
+      watchMsg =
+        results.length === 0
+          ? "No channels are set to watch."
+          : `Checked ${results.length} channel(s); enqueued ${enqueued} new video(s).`;
+      await Promise.all([refreshJobs(), refreshChannels(), refreshVideos()]);
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      watchBusy = false;
     }
   }
 
@@ -397,6 +468,13 @@
               onclick={() => {
                 if (watching) void openInDownload(watching);
               }}>Open in Download</button
+            >
+            <button
+              type="button"
+              class="danger"
+              onclick={() => {
+                if (watching) void confirmDelete(watching);
+              }}>Delete</button
             >
           </div>
           <h2>{watching.title ?? watching.platform_video_id}</h2>
@@ -605,7 +683,7 @@
         >
           <input
             type="url"
-            placeholder="https://www.youtube.com/watch?v=…"
+            placeholder="Video, playlist, or channel URL…"
             bind:value={enqueueUrl}
             required
           />
@@ -618,7 +696,61 @@
             {enqueueBusy ? "Queueing…" : "Enqueue"}
           </button>
         </form>
+        <label class="watch-toggle">
+          <input type="checkbox" bind:checked={watchNewOnEnqueue} />
+          Watch for new uploads (channel URLs only)
+        </label>
         {#if enqueueMsg}<p class="ok">{enqueueMsg}</p>{/if}
+      </section>
+
+      <section class="download-channels">
+        <div class="channels-head">
+          <h2>Channels</h2>
+          <button
+            type="button"
+            class="ghost"
+            disabled={watchBusy}
+            onclick={() => void runCheckWatched()}
+            >{watchBusy ? "Checking…" : "Check watched now"}</button
+          >
+        </div>
+        <p class="muted tiny">
+          Toggle watch to re-scan uploads periodically (and via Check now). Playlists are one-shot
+          only.
+        </p>
+        {#if watchMsg}<p class="ok">{watchMsg}</p>{/if}
+        {#if channels.length === 0}
+          <p class="muted">No channels in the archive yet.</p>
+        {:else}
+          <ul class="download-channel-list">
+            {#each channels as ch (`dl-${ch.platform}:${ch.channel_id}`)}
+              <li>
+                <img
+                  class="channel-avatar"
+                  src={channelThumbnailUrl(ch.platform, ch.channel_id)}
+                  alt=""
+                  onerror={(e) => {
+                    const img = e.currentTarget as HTMLImageElement;
+                    img.style.visibility = "hidden";
+                  }}
+                />
+                <span class="channel-name">{ch.channel ?? ch.channel_id}</span>
+                <span class="muted count">{ch.video_count}</span>
+                <label class="watch-toggle compact" title="Watch for new uploads">
+                  <input
+                    type="checkbox"
+                    checked={ch.watching}
+                    onchange={() => void toggleWatch(ch)}
+                  />
+                  Watch
+                </label>
+                {#if ch.last_checked_at}
+                  <small class="muted">checked {ch.last_checked_at}</small>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
       </section>
 
       <nav class="tabs">
@@ -729,10 +861,17 @@
               <tbody>
                 {#each jobs as job (job.id)}
                   <tr class:active-row={isActiveJob(job.status)}>
-                    <td><span class="status status-{job.status}">{job.status}</span></td>
+                    <td>
+                      <span class="status status-{job.status}">{job.status}</span>
+                      {#if job.job_kind}
+                        <div class="muted tiny">{job.job_kind}</div>
+                      {/if}
+                    </td>
                     <td>
                       <div class="job-url" title={job.url}>{job.platform_video_id ?? job.url}</div>
-                      {#if job.status === "completed" && job.platform && job.platform_video_id}
+                      {#if job.job_kind === "playlist" || job.job_kind === "channel"}
+                        {#if job.error_message}<div class="muted tiny">{job.error_message}</div>{/if}
+                      {:else if job.status === "completed" && job.platform && job.platform_video_id}
                         <button
                           type="button"
                           class="linkish"
@@ -747,9 +886,12 @@
                     <td class="muted">{job.updated_at}</td>
                     <td class="error-cell">
                       {#if job.error_message}
-                        <span class="warn" title={job.error_message}
-                          >{job.error_code}: {job.error_message}</span
-                        >
+                        <details>
+                          <summary class="warn"
+                            >{job.error_code}: {job.error_message.split("\n")[0]}</summary
+                          >
+                          <pre class="error-full">{job.error_message}</pre>
+                        </details>
                       {/if}
                     </td>
                   </tr>
@@ -821,6 +963,13 @@
                   onclick={() => {
                     if (selected) void openWatch(selected);
                   }}>Open in View</button
+                >
+                <button
+                  type="button"
+                  class="danger"
+                  onclick={() => {
+                    if (selected) void confirmDelete(selected);
+                  }}>Delete</button
                 >
               </div>
               <h2>{selected.title ?? selected.platform_video_id}</h2>
@@ -990,6 +1139,47 @@
       grid-template-columns: 1fr;
     }
   }
+  .watch-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.65rem;
+    color: #c5d0db;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .watch-toggle.compact {
+    margin: 0;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+  .download-channels {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    border: 1px solid #2a3542;
+    border-radius: 8px;
+    background: #121820;
+  }
+  .download-channel-list {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+  .download-channel-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid #1c2530;
+  }
+  .status-expanding {
+    background: #2a3340;
+    color: #9ec5ff;
+  }
   .tabs {
     display: flex;
     gap: 0.35rem;
@@ -1039,6 +1229,14 @@
     background: transparent;
     color: #9aa7b5;
     border: 1px solid #2a3542;
+  }
+  button.danger {
+    background: transparent;
+    color: #ff8f8f;
+    border: 1px solid #5a2a2a;
+  }
+  button.danger:hover {
+    background: #3b1d1d;
   }
   button.linkish {
     background: none;
@@ -1334,14 +1532,27 @@
     background: #151c24;
   }
   .error-cell {
-    max-width: 16rem;
+    max-width: 22rem;
   }
-  .error-cell span {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  .error-cell details summary {
+    cursor: pointer;
+    list-style: disclosure-closed;
+  }
+  .error-cell details[open] summary {
+    list-style: disclosure-open;
+  }
+  .error-full {
+    margin: 0.35rem 0 0;
+    padding: 0.45rem 0.55rem;
+    max-height: 12rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.75rem;
+    background: #151c24;
+    border: 1px solid #2a3542;
+    border-radius: 4px;
+    color: #ffcc66;
   }
   .meta,
   .muted {

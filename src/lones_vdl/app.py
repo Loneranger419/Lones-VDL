@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -20,9 +22,9 @@ from lones_vdl.channel_avatars import (
 )
 from lones_vdl.config import Settings, get_settings
 from lones_vdl.cookies import count_cookie_rows, filter_netscape_cookies
-from lones_vdl.db import Database, JobRow
+from lones_vdl.db import ChannelRow, Database, JobRow
 from lones_vdl.download.service import ArchiveService
-from lones_vdl.errors import DuplicateArchiveError
+from lones_vdl.errors import ConflictError, DuplicateArchiveError, LonesVdlError
 from lones_vdl.integrity import rescan_archive, verify_archive
 from lones_vdl.library import build_detail, load_sidecar, resolve_media_file, to_video_response
 from lones_vdl.media import FfmpegMediaProcessor, MediaError, MediaProcessor, find_thumbnail
@@ -42,8 +44,12 @@ from lones_vdl.schemas import (
     VerifyReportResponse,
     VideoDetailResponse,
     VideoResponse,
+    WatchCheckItem,
+    WatchRequest,
 )
 from lones_vdl.storage import item_paths
+
+logger = logging.getLogger(__name__)
 
 QUALITY_PRESETS = [
     "best",
@@ -67,6 +73,22 @@ def _job_response(job: JobRow) -> JobResponse:
         attempts=job.attempts,
         created_at=job.created_at,
         updated_at=job.updated_at,
+        watch_new=job.watch_new,
+        job_kind=job.job_kind,
+    )
+
+
+def _channel_response(archive_root: Path, c: ChannelRow) -> ChannelResponse:
+    return ChannelResponse(
+        platform=c.platform,
+        channel_id=c.channel_id,
+        channel=c.channel,
+        video_count=c.video_count,
+        favorited=c.favorited,
+        has_thumbnail=channel_has_avatar(archive_root, c.platform, c.channel_id),
+        watching=c.watching,
+        last_checked_at=c.last_checked_at,
+        channel_url=c.channel_url,
     )
 
 
@@ -95,10 +117,38 @@ def create_app(
     )
     media = media_processor or FfmpegMediaProcessor()
     require_token = make_require_api_token(settings)
+    watch_stop = threading.Event()
+    watch_thread: threading.Thread | None = None
+
+    def _watch_loop() -> None:
+        interval_h = settings.channel_watch_interval_hours
+        if interval_h <= 0:
+            return
+        # First check shortly after startup, then on interval.
+        if watch_stop.wait(30):
+            return
+        while not watch_stop.is_set():
+            try:
+                service.check_watched_channels()
+            except Exception:  # noqa: BLE001
+                logger.exception("Channel watch check failed")
+            if watch_stop.wait(max(60.0, interval_h * 3600.0)):
+                break
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        nonlocal watch_thread
+        if settings.channel_watch_interval_hours > 0:
+            watch_thread = threading.Thread(
+                target=_watch_loop,
+                name="lones-channel-watch",
+                daemon=True,
+            )
+            watch_thread.start()
         yield
+        watch_stop.set()
+        if watch_thread is not None:
+            watch_thread.join(timeout=2)
         service.close()
         db.close()
 
@@ -231,6 +281,7 @@ def create_app(
             job = service.enqueue(
                 body.url,
                 quality_preference=body.quality_preference or settings.default_quality,
+                watch_new=body.watch_new,
             )
         except DuplicateArchiveError as exc:
             raise HTTPException(
@@ -292,15 +343,7 @@ def create_app(
     )
     def list_channels(platform: str | None = None) -> list[ChannelResponse]:
         return [
-            ChannelResponse(
-                platform=c.platform,
-                channel_id=c.channel_id,
-                channel=c.channel,
-                video_count=c.video_count,
-                favorited=c.favorited,
-                has_thumbnail=channel_has_avatar(settings.archive_root, c.platform, c.channel_id),
-            )
-            for c in db.list_channels(platform=platform)
+            _channel_response(settings.archive_root, c) for c in db.list_channels(platform=platform)
         ]
 
     @app.put(
@@ -330,14 +373,47 @@ def create_app(
                 favorited=body.favorited,
                 has_thumbnail=channel_has_avatar(settings.archive_root, platform, channel_id),
             )
-        return ChannelResponse(
-            platform=row.platform,
-            channel_id=row.channel_id,
-            channel=row.channel,
-            video_count=row.video_count,
-            favorited=row.favorited,
-            has_thumbnail=channel_has_avatar(settings.archive_root, row.platform, row.channel_id),
+        return _channel_response(settings.archive_root, row)
+
+    @app.put(
+        "/api/channels/{platform}/{channel_id}/watch",
+        response_model=ChannelResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def set_channel_watch(
+        platform: str,
+        channel_id: str,
+        body: WatchRequest,
+    ) -> ChannelResponse:
+        db.set_channel_watch(
+            platform=platform,
+            channel_id=channel_id,
+            channel=body.channel,
+            channel_url=body.channel_url,
+            watching=body.watching,
         )
+        channels = {(c.platform, c.channel_id): c for c in db.list_channels(platform=platform)}
+        row = channels.get((platform, channel_id))
+        if row is None:
+            return ChannelResponse(
+                platform=platform,
+                channel_id=channel_id,
+                channel=body.channel,
+                video_count=0,
+                favorited=False,
+                has_thumbnail=channel_has_avatar(settings.archive_root, platform, channel_id),
+                watching=body.watching,
+                channel_url=body.channel_url,
+            )
+        return _channel_response(settings.archive_root, row)
+
+    @app.post(
+        "/api/channels/check-watched",
+        response_model=list[WatchCheckItem],
+        dependencies=[Depends(require_token)],
+    )
+    def check_watched_channels() -> list[WatchCheckItem]:
+        return [WatchCheckItem(**item) for item in service.check_watched_channels()]
 
     @app.get(
         "/api/channels/{platform}/{channel_id}/thumbnail",
@@ -367,6 +443,21 @@ def create_app(
         if avatar is None or not avatar.is_file():
             raise HTTPException(status_code=404, detail="Channel thumbnail not found")
         return FileResponse(avatar)
+
+    @app.delete(
+        "/api/videos/{platform}/{platform_video_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        dependencies=[Depends(require_token)],
+    )
+    def delete_video(platform: str, platform_video_id: str) -> None:
+        try:
+            service.delete_video(platform, platform_video_id)
+        except ConflictError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except LonesVdlError as exc:
+            if exc.code == "not_found":
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get(
         "/api/videos/{platform}/{platform_video_id}",

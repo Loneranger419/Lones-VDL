@@ -39,6 +39,9 @@ export type Channel = {
   video_count: number;
   favorited: boolean;
   has_thumbnail: boolean;
+  watching: boolean;
+  last_checked_at: string | null;
+  channel_url: string | null;
 };
 
 export type Job = {
@@ -54,6 +57,17 @@ export type Job = {
   created_at: string;
   updated_at: string;
   attempts: number;
+  watch_new?: boolean;
+  job_kind?: string | null;
+};
+
+export type WatchCheckItem = {
+  platform: string;
+  channel_id: string;
+  status: string;
+  detail: string;
+  enqueued: number;
+  skipped: number;
 };
 
 export type PublicConfig = {
@@ -195,12 +209,47 @@ export async function setChannelFavorite(
   return res.json();
 }
 
+export async function setChannelWatch(
+  platform: string,
+  channelId: string,
+  watching: boolean,
+  opts?: { channel?: string | null; channelUrl?: string | null },
+): Promise<Channel> {
+  const res = await apiFetch(
+    `/api/channels/${encodeURIComponent(platform)}/${encodeURIComponent(channelId)}/watch`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        watching,
+        channel: opts?.channel ?? null,
+        channel_url: opts?.channelUrl ?? null,
+      }),
+    },
+  );
+  if (!res.ok) throw new Error(await readError(res, "Failed to update watch"));
+  return res.json();
+}
+
+export async function checkWatchedChannels(): Promise<WatchCheckItem[]> {
+  const res = await apiFetch("/api/channels/check-watched", { method: "POST" });
+  if (!res.ok) throw new Error(await readError(res, "Failed to check watched channels"));
+  return res.json();
+}
+
 export async function getVideo(platform: string, id: string): Promise<VideoDetail> {
   const res = await apiFetch(
     `/api/videos/${encodeURIComponent(platform)}/${encodeURIComponent(id)}`,
   );
   if (!res.ok) throw new Error(await readError(res, "Failed to load video"));
   return res.json();
+}
+
+export async function deleteVideo(platform: string, id: string): Promise<void> {
+  const res = await apiFetch(
+    `/api/videos/${encodeURIComponent(platform)}/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) throw new Error(await readError(res, "Failed to delete video"));
 }
 
 export async function listRelated(
@@ -241,10 +290,18 @@ export async function listJobs(): Promise<Job[]> {
   return res.json();
 }
 
-export async function enqueueJob(url: string, qualityPreference: string): Promise<Job> {
+export async function enqueueJob(
+  url: string,
+  qualityPreference: string,
+  watchNew = false,
+): Promise<Job> {
   const res = await apiFetch("/api/jobs", {
     method: "POST",
-    body: JSON.stringify({ url, quality_preference: qualityPreference }),
+    body: JSON.stringify({
+      url,
+      quality_preference: qualityPreference,
+      watch_new: watchNew,
+    }),
   });
   if (!res.ok) throw new Error(await readError(res, "Failed to enqueue"));
   return res.json();
@@ -308,7 +365,7 @@ export function channelThumbnailUrl(platform: string, channelId: string): string
 }
 
 export function isActiveJob(status: string): boolean {
-  return status === "queued" || status === "downloading";
+  return status === "queued" || status === "downloading" || status === "expanding";
 }
 
 export function formatUploadDate(value: string | null | undefined): string {
