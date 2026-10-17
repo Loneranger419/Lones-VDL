@@ -20,7 +20,7 @@ from lones_vdl.channel_avatars import (
     ensure_channel_avatar,
     resolve_channel_avatar_file,
 )
-from lones_vdl.config import Settings, get_settings
+from lones_vdl.config import Settings, get_settings, resolve_web_dist
 from lones_vdl.cookies import count_cookie_rows, filter_netscape_cookies
 from lones_vdl.db import ChannelRow, Database, JobRow
 from lones_vdl.download.service import ArchiveService
@@ -867,8 +867,8 @@ def create_app(
         return FileResponse(play_file, filename=play_file.name)
 
     # Serve built web UI when present (production / docker).
-    web_dist = Path(__file__).resolve().parents[2] / "web" / "dist"
-    if web_dist.is_dir():
-        app.mount("/", StaticFiles(directory=web_dist, html=True), name="web")
+    web_dist = resolve_web_dist(settings)
+    if web_dist is not None:
+        app.mount("/", StaticFiles(directory=str(web_dist), html=True), name="web")
 
     return app

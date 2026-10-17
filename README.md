@@ -94,14 +94,20 @@ Or: `make check` (if `make` is available).
 
 ## Docker (Linux target)
 
-Compose skeleton under `deploy/`. Intended for the headless host with a NAS bind-mount.
-Not required for day-to-day Windows development.
+Multi-stage image under `deploy/` builds the Svelte UI, installs the API, and includes
+FFmpeg + yt-dlp. Intended for the headless host with a NAS bind-mount for media and a
+**local** Docker volume for SQLite. Not used for day-to-day Windows editing (`scripts/dev.ps1`).
 
 ```bash
 cd deploy
-cp ../.env.example .env   # edit paths/token
+cp .env.example .env   # set LONES_VDL_API_TOKEN and archive/secrets host paths
 docker compose up --build
 ```
+
+- UI + API: `http://localhost:8080` (enter the API token)
+- Health: `http://localhost:8080/api/health`
+- Optional cookies: place a Netscape jar under the host secrets dir and set
+  `LONES_VDL_YTDLP_COOKIES_FILE=/secrets/cookies.txt` in `deploy/.env`
 
 ## Roadmap (high level)
 

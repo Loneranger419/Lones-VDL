@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     default_quality: str = "best"
     # Hours between automatic checks of channels with watch enabled (0 disables).
     channel_watch_interval_hours: float = 6.0
+    # Built Svelte UI (web/dist). Empty/unset → auto-detect common locations.
+    web_dist: Path | None = None
 
     def cookie_platform_list(self) -> list[str]:
         return [p.strip().lower() for p in self.cookie_platforms.split(",") if p.strip()]
@@ -34,3 +36,19 @@ class Settings(BaseSettings):
 
 def get_settings() -> Settings:
     return Settings()
+
+
+def resolve_web_dist(settings: Settings | None = None) -> Path | None:
+    """Return directory of built web UI, or None if not present."""
+    cfg = settings or get_settings()
+    if cfg.web_dist is not None:
+        path = Path(cfg.web_dist)
+        return path if path.is_dir() else None
+
+    # Repo checkout: src/lones_vdl/app.py → parents[2] == repo root
+    repo_dist = Path(__file__).resolve().parents[2] / "web" / "dist"
+    docker_dist = Path("/app/web/dist")
+    for candidate in (repo_dist, docker_dist):
+        if candidate.is_dir():
+            return candidate
+    return None
