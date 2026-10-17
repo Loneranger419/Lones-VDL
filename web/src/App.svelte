@@ -1,9 +1,15 @@
 <script lang="ts">
   import {
+    attachCreatorChannel,
+    channelKey,
     channelThumbnailUrl,
     checkWatchedChannels,
     clearToken,
+    createCreator,
+    creatorThumbnailUrl,
+    deleteCreator,
     deleteVideo,
+    detachCreatorChannel,
     enqueueJob,
     filterCookies,
     formatUploadDate,
@@ -12,6 +18,7 @@
     getVideo,
     isActiveJob,
     listChannels,
+    listCreators,
     listJobs,
     listRelated,
     listVideos,
@@ -22,8 +29,10 @@
     setChannelWatch,
     setToken,
     thumbnailUrl,
+    updateCreator,
     verifyIntegrity,
     type Channel,
+    type Creator,
     type Job,
     type PublicConfig,
     type RescanReport,
@@ -43,7 +52,11 @@
   let query = $state("");
   let videos = $state<VideoSummary[]>([]);
   let channels = $state<Channel[]>([]);
-  let selectedChannelIds = $state<string[]>([]);
+  let creators = $state<Creator[]>([]);
+  /** Selected channel filters as `platform:channel_id`. */
+  let selectedChannels = $state<string[]>([]);
+  let platformFilter = $state<string>("");
+  let contentKindFilter = $state<string>("");
   let sort = $state<SortField>("upload_date");
   let order = $state<"asc" | "desc">("desc");
   let watching = $state<VideoDetail | null>(null);
@@ -68,6 +81,12 @@
   let rescanReport = $state<RescanReport | null>(null);
   let error = $state("");
   let loading = $state(false);
+  let newCreatorName = $state("");
+  let creatorBusy = $state(false);
+  let creatorMsg = $state("");
+  let editingCreatorId = $state<number | null>(null);
+  let editCreatorName = $state("");
+  let attachChannelKey = $state("");
 
   async function saveToken() {
     setToken(tokenInput.trim());
@@ -85,6 +104,7 @@
     videos = [];
     jobs = [];
     channels = [];
+    creators = [];
     selected = null;
     watching = null;
     config = null;
@@ -97,7 +117,7 @@
     try {
       config = await getConfig();
       quality = config.default_quality || "best";
-      await Promise.all([refreshVideos(), refreshChannels(), refreshJobs()]);
+      await Promise.all([refreshVideos(), refreshChannels(), refreshCreators(), refreshJobs()]);
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -108,7 +128,9 @@
   async function refreshVideos() {
     videos = await listVideos({
       q: query.trim() || undefined,
-      channelIds: selectedChannelIds.length ? selectedChannelIds : undefined,
+      channels: selectedChannels.length ? selectedChannels : undefined,
+      platforms: platformFilter ? [platformFilter] : undefined,
+      contentKinds: contentKindFilter ? [contentKindFilter] : undefined,
       sort,
       order,
       limit: 200,
@@ -119,15 +141,20 @@
     channels = await listChannels();
   }
 
+  async function refreshCreators() {
+    creators = await listCreators();
+  }
+
   async function refreshJobs() {
     jobs = await listJobs();
   }
 
-  function toggleChannel(channelId: string) {
-    if (selectedChannelIds.includes(channelId)) {
-      selectedChannelIds = selectedChannelIds.filter((id) => id !== channelId);
+  function toggleChannel(ch: Channel) {
+    const key = channelKey(ch.platform, ch.channel_id);
+    if (selectedChannels.includes(key)) {
+      selectedChannels = selectedChannels.filter((id) => id !== key);
     } else {
-      selectedChannelIds = [...selectedChannelIds, channelId];
+      selectedChannels = [...selectedChannels, key];
     }
     void refreshVideos().catch((err) => (error = String(err)));
   }
@@ -337,6 +364,145 @@
     }
   }
 
+  async function submitCreateCreator() {
+    const name = newCreatorName.trim();
+    if (!name) return;
+    creatorBusy = true;
+    creatorMsg = "";
+    error = "";
+    try {
+      const created = await createCreator(name);
+      newCreatorName = "";
+      creatorMsg = `Created creator “${name}”.`;
+      await refreshCreators();
+      await refreshChannels();
+      beginEditCreator(created);
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      creatorBusy = false;
+    }
+  }
+
+  function beginEditCreator(c: Creator) {
+    editingCreatorId = c.id;
+    editCreatorName = c.display_name;
+    attachChannelKey = "";
+  }
+
+  function cancelEditCreator() {
+    editingCreatorId = null;
+    editCreatorName = "";
+    attachChannelKey = "";
+  }
+
+  function unlinkedChannelsForEdit(): Channel[] {
+    if (editingCreatorId == null) return [];
+    const linked = new Set(
+      (creators.find((c) => c.id === editingCreatorId)?.channels ?? []).map((ch) =>
+        channelKey(ch.platform, ch.channel_id),
+      ),
+    );
+    return channels.filter((ch) => !linked.has(channelKey(ch.platform, ch.channel_id)));
+  }
+
+  async function saveCreatorName() {
+    if (editingCreatorId == null) return;
+    const name = editCreatorName.trim();
+    if (!name) return;
+    creatorBusy = true;
+    creatorMsg = "";
+    error = "";
+    try {
+      await updateCreator(editingCreatorId, { display_name: name });
+      creatorMsg = "Creator renamed.";
+      await refreshCreators();
+      await refreshChannels();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      creatorBusy = false;
+    }
+  }
+
+  async function attachChannelFromLibrary() {
+    if (editingCreatorId == null || !attachChannelKey.includes(":")) return;
+    const [platform, ...rest] = attachChannelKey.split(":");
+    const channelId = rest.join(":");
+    creatorBusy = true;
+    creatorMsg = "";
+    error = "";
+    try {
+      await attachCreatorChannel(editingCreatorId, platform, channelId);
+      creatorMsg = `Linked ${platform}:${channelId}.`;
+      attachChannelKey = "";
+      await refreshCreators();
+      await refreshChannels();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      creatorBusy = false;
+    }
+  }
+
+  async function unlinkCreatorChannel(platform: string, channelId: string) {
+    if (editingCreatorId == null) return;
+    creatorBusy = true;
+    creatorMsg = "";
+    error = "";
+    try {
+      await detachCreatorChannel(editingCreatorId, platform, channelId);
+      creatorMsg = `Unlinked ${platform}:${channelId}.`;
+      await refreshCreators();
+      await refreshChannels();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      creatorBusy = false;
+    }
+  }
+
+  async function setCreatorAvatar(platform: string, channelId: string) {
+    if (editingCreatorId == null) return;
+    creatorBusy = true;
+    creatorMsg = "";
+    error = "";
+    try {
+      await updateCreator(editingCreatorId, {
+        avatar_platform: platform,
+        avatar_channel_id: channelId,
+      });
+      creatorMsg = "Creator thumbnail updated.";
+      await refreshCreators();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      creatorBusy = false;
+    }
+  }
+
+  async function removeCreator(c: Creator) {
+    if (!confirm(`Delete creator “${c.display_name}”? Channels stay archived.`)) return;
+    creatorBusy = true;
+    error = "";
+    try {
+      await deleteCreator(c.id);
+      if (editingCreatorId === c.id) cancelEditCreator();
+      await refreshCreators();
+      await refreshChannels();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      creatorBusy = false;
+    }
+  }
+
+  function kindLabel(kind: string | null | undefined): string {
+    if (kind === "vod") return "VOD";
+    if (kind === "clip") return "Clip";
+    return "Video";
+  }
+
   async function runRefreshIncomplete() {
     refreshBusy = true;
     refreshMsg = "";
@@ -372,6 +538,7 @@
       upload_date: null,
       metadata_incomplete: false,
       metadata_gaps: [],
+      content_kind: "video",
     };
   }
 
@@ -480,6 +647,8 @@
           <h2>{watching.title ?? watching.platform_video_id}</h2>
           <p class="meta">
             {watching.channel ?? "Unknown channel"}
+            · {watching.platform}
+            · {kindLabel(watching.content_kind)}
             · {formatUploadDate(watching.upload_date)}
             · archived {watching.archived_at}
             {#if watching.metadata_incomplete}
@@ -507,7 +676,7 @@
 
           <div class="watch-columns">
             <div>
-              <h3>More from channel</h3>
+              <h3>More from creator / channel</h3>
               {#if related.length === 0}
                 <p class="muted">No other videos from this channel in the archive.</p>
               {:else}
@@ -563,12 +732,12 @@
           <aside class="channels">
             <div class="channels-head">
               <h2>Channels</h2>
-              {#if selectedChannelIds.length}
+              {#if selectedChannels.length}
                 <button
                   type="button"
                   class="linkish"
                   onclick={() => {
-                    selectedChannelIds = [];
+                    selectedChannels = [];
                     void refreshVideos().catch((err) => (error = String(err)));
                   }}>Clear</button
                 >
@@ -583,8 +752,10 @@
                   <li>
                     <button
                       type="button"
-                      class:active={selectedChannelIds.includes(ch.channel_id)}
-                      onclick={() => toggleChannel(ch.channel_id)}
+                      class:active={selectedChannels.includes(
+                        channelKey(ch.platform, ch.channel_id),
+                      )}
+                      onclick={() => toggleChannel(ch)}
                     >
                       <img
                         class="channel-avatar"
@@ -596,6 +767,10 @@
                         }}
                       />
                       <span class="channel-name">{ch.channel ?? ch.channel_id}</span>
+                      <span class="platform-badge">{ch.platform}</span>
+                      {#if ch.creator_name}
+                        <span class="muted tiny creator-tag">{ch.creator_name}</span>
+                      {/if}
                       <span class="muted count">{ch.video_count}</span>
                     </button>
                     <button
@@ -624,6 +799,23 @@
                   if (e.key === "Enter") void refreshVideos().catch((err) => (error = String(err)));
                 }}
               />
+              <select
+                bind:value={platformFilter}
+                onchange={() => void refreshVideos().catch((err) => (error = String(err)))}
+              >
+                <option value="">All platforms</option>
+                <option value="youtube">YouTube</option>
+                <option value="twitch">Twitch</option>
+              </select>
+              <select
+                bind:value={contentKindFilter}
+                onchange={() => void refreshVideos().catch((err) => (error = String(err)))}
+              >
+                <option value="">All kinds</option>
+                <option value="video">Video</option>
+                <option value="vod">VOD</option>
+                <option value="clip">Clip</option>
+              </select>
               <select
                 bind:value={sort}
                 onchange={() => void refreshVideos().catch((err) => (error = String(err)))}
@@ -659,8 +851,11 @@
                     {/if}
                     <strong>{v.title ?? v.platform_video_id}</strong>
                     <small
-                      >{v.channel ?? "Unknown channel"} · {formatUploadDate(v.upload_date)}</small
+                      >{v.channel ?? "Unknown channel"} · {kindLabel(v.content_kind)} · {formatUploadDate(
+                        v.upload_date,
+                      )}</small
                     >
+                    <span class="platform-badge">{v.platform}</span>
                     {#if v.metadata_incomplete}
                       <span class="badge-warn">Incomplete</span>
                     {/if}
@@ -683,7 +878,7 @@
         >
           <input
             type="url"
-            placeholder="Video, playlist, or channel URL…"
+            placeholder="YouTube or Twitch video / VOD / clip / playlist / channel…"
             bind:value={enqueueUrl}
             required
           />
@@ -698,9 +893,142 @@
         </form>
         <label class="watch-toggle">
           <input type="checkbox" bind:checked={watchNewOnEnqueue} />
-          Watch for new uploads (channel URLs only)
+          Watch for new uploads / VODs (channel URLs only; Twitch clips stay manual)
         </label>
         {#if enqueueMsg}<p class="ok">{enqueueMsg}</p>{/if}
+      </section>
+
+      <section class="creators">
+        <h2>Creators</h2>
+        <p class="muted tiny">
+          Link the same person across YouTube and Twitch for related / up-next across sites. Edit a
+          creator to attach existing library channels and pick a thumbnail.
+        </p>
+        <form
+          class="enqueue-form"
+          onsubmit={(e) => {
+            e.preventDefault();
+            void submitCreateCreator();
+          }}
+        >
+          <input type="text" placeholder="Creator display name" bind:value={newCreatorName} required />
+          <button type="submit" disabled={creatorBusy}>Create</button>
+        </form>
+        {#if creators.length}
+          <ul class="creator-list">
+            {#each creators as c (c.id)}
+              <li class="creator-row">
+                {#if c.has_thumbnail}
+                  <img class="channel-avatar" src={creatorThumbnailUrl(c.id)} alt="" />
+                {:else}
+                  <div class="channel-avatar thumb-fallback"></div>
+                {/if}
+                <div class="creator-main">
+                  <strong>{c.display_name}</strong>
+                  <span class="muted tiny"
+                    >{c.channels
+                      .map((ch) => `${ch.platform}:${ch.channel ?? ch.channel_id}`)
+                      .join(" · ") || "no channels"}</span
+                  >
+                </div>
+                <button type="button" class="linkish" onclick={() => beginEditCreator(c)}
+                  >Edit</button
+                >
+                <button type="button" class="linkish" onclick={() => void removeCreator(c)}
+                  >Delete</button
+                >
+              </li>
+            {/each}
+          </ul>
+        {/if}
+
+        {#if editingCreatorId != null}
+          {@const editing = creators.find((c) => c.id === editingCreatorId)}
+          {#if editing}
+            <div class="creator-edit">
+              <h3>Edit {editing.display_name}</h3>
+              <form
+                class="enqueue-form"
+                onsubmit={(e) => {
+                  e.preventDefault();
+                  void saveCreatorName();
+                }}
+              >
+                <input type="text" bind:value={editCreatorName} required />
+                <button type="submit" disabled={creatorBusy}>Save name</button>
+                <button type="button" class="ghost" onclick={cancelEditCreator}>Close</button>
+              </form>
+
+              <h4>Linked channels</h4>
+              {#if editing.channels.length === 0}
+                <p class="muted tiny">None yet — attach from the library below.</p>
+              {:else}
+                <ul class="creator-channel-list">
+                  {#each editing.channels as ch (`${ch.platform}:${ch.channel_id}`)}
+                    <li>
+                      {#if ch.has_thumbnail}
+                        <img
+                          class="channel-avatar"
+                          src={channelThumbnailUrl(ch.platform, ch.channel_id)}
+                          alt=""
+                        />
+                      {:else}
+                        <div class="channel-avatar thumb-fallback"></div>
+                      {/if}
+                      <span
+                        >{ch.channel ?? ch.channel_id}
+                        <span class="platform-badge">{ch.platform}</span></span
+                      >
+                      <button
+                        type="button"
+                        class="linkish"
+                        class:on={editing.avatar_platform === ch.platform &&
+                          editing.avatar_channel_id === ch.channel_id}
+                        disabled={creatorBusy || !ch.has_thumbnail}
+                        onclick={() => void setCreatorAvatar(ch.platform, ch.channel_id)}
+                        >{editing.avatar_platform === ch.platform &&
+                        editing.avatar_channel_id === ch.channel_id
+                          ? "Thumbnail"
+                          : "Use thumb"}</button
+                      >
+                      <button
+                        type="button"
+                        class="linkish"
+                        disabled={creatorBusy}
+                        onclick={() => void unlinkCreatorChannel(ch.platform, ch.channel_id)}
+                        >Unlink</button
+                      >
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+
+              <h4>Attach library channel</h4>
+              {#if unlinkedChannelsForEdit().length === 0}
+                <p class="muted tiny">All library channels are already linked (or none archived).</p>
+              {:else}
+                <form
+                  class="enqueue-form"
+                  onsubmit={(e) => {
+                    e.preventDefault();
+                    void attachChannelFromLibrary();
+                  }}
+                >
+                  <select bind:value={attachChannelKey} required>
+                    <option value="">— choose channel —</option>
+                    {#each unlinkedChannelsForEdit() as ch (`avail-${ch.platform}:${ch.channel_id}`)}
+                      <option value={channelKey(ch.platform, ch.channel_id)}
+                        >{ch.platform}: {ch.channel ?? ch.channel_id} ({ch.video_count})</option
+                      >
+                    {/each}
+                  </select>
+                  <button type="submit" disabled={creatorBusy || !attachChannelKey}>Attach</button>
+                </form>
+              {/if}
+            </div>
+          {/if}
+        {/if}
+        {#if creatorMsg}<p class="ok">{creatorMsg}</p>{/if}
       </section>
 
       <section class="download-channels">
@@ -715,8 +1043,8 @@
           >
         </div>
         <p class="muted tiny">
-          Toggle watch to re-scan uploads periodically (and via Check now). Playlists are one-shot
-          only.
+          Toggle watch to re-scan uploads/VODs periodically (and via Check now). Playlists and Twitch
+          clips are one-shot only. Link channels to creators in the Creators section above.
         </p>
         {#if watchMsg}<p class="ok">{watchMsg}</p>{/if}
         {#if channels.length === 0}
@@ -735,8 +1063,12 @@
                   }}
                 />
                 <span class="channel-name">{ch.channel ?? ch.channel_id}</span>
+                <span class="platform-badge">{ch.platform}</span>
+                {#if ch.creator_name}
+                  <span class="muted tiny">{ch.creator_name}</span>
+                {/if}
                 <span class="muted count">{ch.video_count}</span>
-                <label class="watch-toggle compact" title="Watch for new uploads">
+                <label class="watch-toggle compact" title="Watch for new uploads/VODs">
                   <input
                     type="checkbox"
                     checked={ch.watching}
@@ -1374,6 +1706,71 @@
   .card small {
     color: #9aa7b5;
   }
+  .platform-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.75;
+    border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+    border-radius: 3px;
+    padding: 0.05rem 0.3rem;
+  }
+
+  .creator-tag,
+  .attach-row {
+    display: block;
+    margin-top: 0.25rem;
+  }
+
+  .creator-list {
+    list-style: none;
+    padding: 0;
+    margin: 0.75rem 0 0;
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .creator-list li,
+  .creator-channel-list li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+  }
+
+  .creator-main {
+    display: grid;
+    gap: 0.15rem;
+    flex: 1;
+    min-width: 10rem;
+  }
+
+  .creator-edit {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .creator-edit h3,
+  .creator-edit h4 {
+    margin: 0.25rem 0 0;
+  }
+
+  .creator-channel-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 0.4rem;
+  }
+
+  .creator-channel-list .linkish.on {
+    font-weight: 600;
+  }
+
   .badge-warn {
     align-self: flex-start;
     font-size: 0.75rem;

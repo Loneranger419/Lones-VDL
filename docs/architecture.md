@@ -15,7 +15,7 @@ Implementation follows milestones; this document is the source of truth for boun
 | Topic | Decision |
 |-------|----------|
 | Topology | Server-first modular monolith |
-| MVP content | YouTube individual videos |
+| MVP content | YouTube videos + Twitch VODs/clips |
 | Language | Python 3.11+ |
 | API | FastAPI |
 | DB | SQLite on **local** disk (not on NAS/SMB/NFS) |
@@ -26,38 +26,43 @@ Implementation follows milestones; this document is the source of truth for boun
 | Auth (API) | Shared bearer token; LAN bind |
 | YouTube auth | Optional operator-supplied cookies file for yt-dlp |
 | Desktop | **Out of scope** — LAN/VPN web UI is sufficient; no separate desktop client |
+| Cross-site identity | Manual **creator hub** linking channels across platforms |
 
 ## Components
 
-1. **Platform adapter** — yt-dlp wrapper; YouTube first.
+1. **Platform adapter** — yt-dlp wrapper; YouTube and Twitch URL routing.
 2. **Download manager** — queue, concurrency, progress, retry, duplicates.
-3. **Storage** — ID-based layout on archive root; atomic promote; sidecars.
+3. **Storage** — ID-based layout on archive root (`youtube/` / `twitch/`); atomic promote; sidecars.
 4. **Integrity** — checksums; rescan/import; DB rebuildable from sidecars.
-5. **Metadata index** — SQLite for search/jobs; sidecar JSON is portable truth.
-6. **Media processing** — ffprobe; remux for browser play when possible.
-7. **HTTP API** — FastAPI surface for the web UI (and optional CLI).
-8. **Web UI** — browse, play, enqueue, jobs (sole operator GUI).
+5. **Metadata index** — SQLite for search/jobs; `content_kind` (`video` / `vod` / `clip`); sidecar JSON is portable truth.
+6. **Creator hub** — manual links between `(platform, channel_id)` for related/up-next across sites.
+7. **Media processing** — ffprobe; remux for browser play when possible.
+8. **HTTP API** — FastAPI surface for the web UI (and optional CLI).
+9. **Web UI** — browse, play, enqueue, jobs, creators (sole operator GUI).
 
-## Data flow (single YouTube video)
+## Data flow (single video / VOD / clip)
 
 1. Client enqueues URL (+ quality preference).
-2. Service resolves stable ID via yt-dlp; reject/return if already archived.
-3. Download into partial directory under `youtube/<id>/`.
-4. On success: promote files, write sidecar + checksums, update DB.
+2. URL router classifies platform + kind; service resolves stable ID via yt-dlp; reject if already archived.
+3. Download into partial directory under `<platform>/<id>/`.
+4. On success: promote files, write sidecar + checksums + `content_kind`, update DB.
 5. On failure: classify (unavailable vs transient), retry or fail clearly.
+
+Channel expand/watch lists YouTube uploads or Twitch VOD archives (not Twitch clips).
 
 ## Storage layout
 
 ```text
 <ARCHIVE_ROOT>/
-  youtube/
+  youtube|twitch/
     <video_id>/
       media.<ext>
-      metadata.json          # source + archive provenance
+      metadata.json          # source + archive provenance (incl. content_kind)
       thumbnails/
       subtitles/
       checksums.json
       derivatives/           # remux only; optional
+    _channels/<channel_id>/avatar.*
 ```
 
 ## Security
@@ -80,12 +85,14 @@ Implementation follows milestones; this document is the source of truth for boun
 3. Web job control — done
 4. Integrity rescan/verify — done
 5. ~~Thin desktop client~~ — cancelled (web over LAN/VPN instead)
+6. Twitch VODs/clips + creator hub — done
 
 ## Non-goals (near term)
 
 - Separate desktop application (Tauri/Electron)
 - Microservices, Redis/Celery unless proven necessary
 - Active livestream recording
+- Twitch clip auto-watch / channel clip expand
 - Transcoding pipeline (re-encode)
 - Multi-user tenancy / public SaaS
 - Public internet exposure (LAN + VPN only)

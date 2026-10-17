@@ -9,12 +9,14 @@ import pytest
 from lones_vdl.config import Settings
 from lones_vdl.db import Database
 from lones_vdl.download.service import ArchiveService
+from lones_vdl.platform.url_router import classify_url
 from lones_vdl.platform.ytdlp import (
     DownloadResult,
     PlaylistEntry,
     PlaylistListing,
     VideoInfo,
 )
+from lones_vdl.storage import PLATFORM_YOUTUBE
 
 
 class FakeYtdlpAdapter:
@@ -23,40 +25,71 @@ class FakeYtdlpAdapter:
         *,
         video_id: str = "dQw4w9WgXcQ",
         title: str = "Test Video",
+        platform: str = PLATFORM_YOUTUBE,
         fail_extract: Exception | None = None,
         fail_download: Exception | None = None,
         playlist_entries: list[PlaylistEntry] | None = None,
         list_kind: str = "playlist",
+        channel: str = "Test Channel",
+        channel_id: str = "UC_test_channel",
+        channel_url: str | None = None,
+        extractor: str | None = None,
     ) -> None:
         self.video_id = video_id
         self.title = title
+        self.platform = platform
         self.fail_extract = fail_extract
         self.fail_download = fail_download
         self.playlist_entries = playlist_entries
         self.list_kind = list_kind
+        self.channel = channel
+        self.channel_id = channel_id
+        self.channel_url = channel_url or (
+            f"https://www.youtube.com/channel/{channel_id}"
+            if platform == PLATFORM_YOUTUBE
+            else f"https://www.twitch.tv/{channel_id}"
+        )
+        if extractor:
+            self.extractor = extractor
+        elif platform == "twitch":
+            self.extractor = "TwitchVod"
+        else:
+            self.extractor = "Youtube"
         self.extract_calls = 0
         self.download_calls = 0
         self.list_calls = 0
+
+    def _raw(self, url: str) -> dict:
+        return {
+            "id": self.video_id,
+            "title": self.title,
+            "webpage_url": url,
+            "channel": self.channel,
+            "channel_id": self.channel_id,
+            "uploader": self.channel,
+            "uploader_id": self.channel_id,
+            "channel_url": self.channel_url,
+            "uploader_url": self.channel_url,
+            "upload_date": "20091025",
+            "duration": 42,
+            "extractor": self.extractor,
+            "extractor_key": self.extractor,
+        }
 
     def extract_info(self, url: str) -> VideoInfo:
         self.extract_calls += 1
         if self.fail_extract is not None:
             raise self.fail_extract
+        try:
+            platform = classify_url(url).platform
+        except Exception:  # noqa: BLE001
+            platform = self.platform
         return VideoInfo(
-            platform="youtube",
+            platform=platform,
             video_id=self.video_id,
             url=url,
             title=self.title,
-            raw={
-                "id": self.video_id,
-                "title": self.title,
-                "webpage_url": url,
-                "channel": "Test Channel",
-                "channel_id": "UC_test_channel",
-                "channel_url": "https://www.youtube.com/channel/UC_test_channel",
-                "upload_date": "20091025",
-                "duration": 42,
-            },
+            raw=self._raw(url),
         )
 
     def download_channel_avatar(self, channel_url: str, *, dest_dir: Path) -> Path | None:
@@ -67,24 +100,36 @@ class FakeYtdlpAdapter:
 
     def list_entries(self, url: str) -> PlaylistListing:
         self.list_calls += 1
+        try:
+            classified = classify_url(url)
+            platform = classified.platform
+            kind = classified.kind if classified.kind in {"playlist", "channel"} else self.list_kind
+        except Exception:  # noqa: BLE001
+            platform = self.platform
+            kind = self.list_kind
         entries = self.playlist_entries or [
             PlaylistEntry(
                 video_id=self.video_id,
-                url=f"https://www.youtube.com/watch?v={self.video_id}",
+                url=(
+                    f"https://www.youtube.com/watch?v={self.video_id}"
+                    if platform == PLATFORM_YOUTUBE
+                    else f"https://www.twitch.tv/videos/{self.video_id}"
+                ),
                 title=self.title,
-                channel="Test Channel",
-                channel_id="UC_test_channel",
-                channel_url="https://www.youtube.com/channel/UC_test_channel",
+                channel=self.channel,
+                channel_id=self.channel_id,
+                channel_url=self.channel_url,
             )
         ]
         return PlaylistListing(
-            kind=self.list_kind,  # type: ignore[arg-type]
-            list_id="PLtestlist",
+            kind=kind,  # type: ignore[arg-type]
+            platform=platform,
+            list_id="PLtestlist" if platform == PLATFORM_YOUTUBE else self.channel_id,
             title="Test List",
             url=url,
-            channel="Test Channel",
-            channel_id="UC_test_channel",
-            channel_url="https://www.youtube.com/channel/UC_test_channel",
+            channel=self.channel,
+            channel_id=self.channel_id,
+            channel_url=self.channel_url,
             entries=tuple(entries),
         )
 
@@ -98,21 +143,16 @@ class FakeYtdlpAdapter:
         self.download_calls += 1
         if self.fail_download is not None:
             raise self.fail_download
+        try:
+            platform = classify_url(url).platform
+        except Exception:  # noqa: BLE001
+            platform = self.platform
         info = VideoInfo(
-            platform="youtube",
+            platform=platform,
             video_id=self.video_id,
             url=url,
             title=self.title,
-            raw={
-                "id": self.video_id,
-                "title": self.title,
-                "webpage_url": url,
-                "channel": "Test Channel",
-                "channel_id": "UC_test_channel",
-                "channel_url": "https://www.youtube.com/channel/UC_test_channel",
-                "upload_date": "20091025",
-                "duration": 42,
-            },
+            raw=self._raw(url),
         )
         media_path = output_dir / "media.mkv"
         media_path.write_bytes(b"fake-video-bytes")
@@ -137,7 +177,7 @@ def tmp_env(tmp_path: Path) -> Settings:
         archive_root=archive,
         database_path=db_path,
         ytdlp_cookies_file=None,
-        cookie_platforms="youtube",
+        cookie_platforms="youtube,twitch",
         download_concurrency=1,
         download_max_attempts=2,
         channel_watch_interval_hours=0,

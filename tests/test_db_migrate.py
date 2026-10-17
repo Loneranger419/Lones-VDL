@@ -60,8 +60,15 @@ def test_opens_legacy_videos_table_without_channel_columns(tmp_path: Path) -> No
         assert video is not None
         assert video.channel is None
         assert video.metadata_incomplete is False
+        assert video.content_kind == "video"
         cols = {row["name"] for row in db._conn.execute("PRAGMA table_info(videos)").fetchall()}
         assert "channel_id" in cols
         assert "upload_date" in cols
+        assert "content_kind" in cols
+        creators = {
+            row["name"] for row in db._conn.execute("SELECT name FROM sqlite_master").fetchall()
+        }
+        assert "creators" in creators
+        assert "creator_channels" in creators
     finally:
         db.close()

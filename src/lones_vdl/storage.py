@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 PLATFORM_YOUTUBE = "youtube"
+PLATFORM_TWITCH = "twitch"
 
 
 @dataclass(frozen=True)

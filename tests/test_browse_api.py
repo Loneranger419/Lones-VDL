@@ -110,7 +110,7 @@ def test_list_sort_channels_favorites_related(tmp_env: Settings) -> None:
         assert channels[0]["favorited"] is True
 
         filtered = client.get(
-            "/api/videos?channel_id=UC_test_channel&sort=title&order=asc",
+            "/api/videos?channel=youtube:UC_test_channel&sort=title&order=asc",
             headers=headers,
         )
         assert filtered.status_code == 200

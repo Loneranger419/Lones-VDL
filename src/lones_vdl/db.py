@@ -1,4 +1,4 @@
-"""SQLite persistence for videos, jobs, and channel favorites."""
+"""SQLite persistence for videos, jobs, channels, and creator hubs."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS videos (
     upload_date TEXT,
     metadata_incomplete INTEGER NOT NULL DEFAULT 0,
     metadata_gaps TEXT,
+    content_kind TEXT NOT NULL DEFAULT 'video',
     UNIQUE (platform, platform_video_id)
 );
 
@@ -63,7 +64,24 @@ CREATE TABLE IF NOT EXISTS channel_watches (
     PRIMARY KEY (platform, channel_id)
 );
 
+CREATE TABLE IF NOT EXISTS creators (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    display_name TEXT NOT NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    avatar_platform TEXT,
+    avatar_channel_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS creator_channels (
+    creator_id INTEGER NOT NULL REFERENCES creators(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    PRIMARY KEY (platform, channel_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+CREATE INDEX IF NOT EXISTS idx_creator_channels_creator ON creator_channels(creator_id);
 """
 
 _JOB_COLUMNS = {
@@ -76,6 +94,8 @@ _INDEXES_AFTER_MIGRATE = """
 CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(platform, channel_id);
 CREATE INDEX IF NOT EXISTS idx_videos_upload_date ON videos(upload_date);
 CREATE INDEX IF NOT EXISTS idx_videos_title ON videos(title);
+CREATE INDEX IF NOT EXISTS idx_videos_content_kind ON videos(content_kind);
+CREATE INDEX IF NOT EXISTS idx_videos_platform ON videos(platform);
 """
 
 _VIDEO_COLUMNS = {
@@ -84,6 +104,7 @@ _VIDEO_COLUMNS = {
     "upload_date": "TEXT",
     "metadata_incomplete": "INTEGER NOT NULL DEFAULT 0",
     "metadata_gaps": "TEXT",
+    "content_kind": "TEXT NOT NULL DEFAULT 'video'",
 }
 
 
@@ -107,6 +128,7 @@ class VideoRow:
     upload_date: str | None
     metadata_incomplete: bool
     metadata_gaps: tuple[str, ...]
+    content_kind: str = "video"
 
 
 @dataclass(frozen=True)
@@ -137,6 +159,8 @@ class ChannelRow:
     watching: bool = False
     last_checked_at: str | None = None
     channel_url: str | None = None
+    creator_id: int | None = None
+    creator_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -148,6 +172,23 @@ class ChannelWatchRow:
     enabled: bool
     last_checked_at: str | None
     created_at: str
+
+
+@dataclass(frozen=True)
+class CreatorRow:
+    id: int
+    display_name: str
+    notes: str | None
+    created_at: str
+    avatar_platform: str | None = None
+    avatar_channel_id: str | None = None
+
+
+@dataclass(frozen=True)
+class CreatorChannelRow:
+    creator_id: int
+    platform: str
+    channel_id: str
 
 
 SortField = Literal["upload_date", "title", "archived_at"]
@@ -174,10 +215,45 @@ class Database:
         for column, decl in _VIDEO_COLUMNS.items():
             if column not in existing:
                 self._conn.execute(f"ALTER TABLE videos ADD COLUMN {column} {decl}")
+        if "content_kind" not in existing:
+            self._conn.execute(
+                """
+                UPDATE videos
+                SET content_kind = 'video'
+                WHERE content_kind IS NULL OR content_kind = ''
+                """
+            )
         job_cols = {row["name"] for row in self._conn.execute("PRAGMA table_info(jobs)").fetchall()}
         for column, decl in _JOB_COLUMNS.items():
             if column not in job_cols:
                 self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {decl}")
+        # Ensure creator tables exist on DBs created before this feature.
+        self._conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS creators (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                display_name TEXT NOT NULL,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                avatar_platform TEXT,
+                avatar_channel_id TEXT
+            );
+            CREATE TABLE IF NOT EXISTS creator_channels (
+                creator_id INTEGER NOT NULL REFERENCES creators(id) ON DELETE CASCADE,
+                platform TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                PRIMARY KEY (platform, channel_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_creator_channels_creator ON creator_channels(creator_id);
+            """
+        )
+        creator_cols = {
+            row["name"] for row in self._conn.execute("PRAGMA table_info(creators)").fetchall()
+        }
+        if "avatar_platform" not in creator_cols:
+            self._conn.execute("ALTER TABLE creators ADD COLUMN avatar_platform TEXT")
+        if "avatar_channel_id" not in creator_cols:
+            self._conn.execute("ALTER TABLE creators ADD COLUMN avatar_channel_id TEXT")
 
     def close(self) -> None:
         with self._lock:
@@ -215,6 +291,7 @@ class Database:
         upload_date: str | None = None,
         metadata_incomplete: bool = False,
         metadata_gaps: tuple[str, ...] | list[str] | None = None,
+        content_kind: str = "video",
     ) -> VideoRow:
         archived = archived_at or utc_now_iso()
         gaps_json = json.dumps(list(metadata_gaps or []))
@@ -224,8 +301,9 @@ class Database:
                 INSERT INTO videos (
                     platform, platform_video_id, title, url,
                     media_relpath, metadata_relpath, checksum_sha256, archived_at,
-                    channel, channel_id, upload_date, metadata_incomplete, metadata_gaps
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    channel, channel_id, upload_date, metadata_incomplete, metadata_gaps,
+                    content_kind
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     platform,
@@ -241,6 +319,7 @@ class Database:
                     upload_date,
                     1 if metadata_incomplete else 0,
                     gaps_json,
+                    content_kind or "video",
                 ),
             )
             self._conn.commit()
@@ -307,7 +386,9 @@ class Database:
         *,
         limit: int = 50,
         q: str | None = None,
-        channel_ids: list[str] | None = None,
+        channel_keys: list[tuple[str, str]] | None = None,
+        platforms: list[str] | None = None,
+        content_kinds: list[str] | None = None,
         sort: SortField = "upload_date",
         order: SortOrder = "desc",
         incomplete_only: bool = False,
@@ -318,14 +399,25 @@ class Database:
             if q:
                 clauses.append(
                     "(title LIKE ? OR platform_video_id LIKE ? OR platform LIKE ?"
-                    " OR url LIKE ? OR channel LIKE ? OR channel_id LIKE ?)"
+                    " OR url LIKE ? OR channel LIKE ? OR channel_id LIKE ?"
+                    " OR content_kind LIKE ?)"
                 )
                 needle = f"%{q}%"
-                params.extend([needle] * 6)
-            if channel_ids:
-                placeholders = ",".join("?" for _ in channel_ids)
-                clauses.append(f"channel_id IN ({placeholders})")
-                params.extend(channel_ids)
+                params.extend([needle] * 7)
+            if channel_keys:
+                parts = []
+                for platform, channel_id in channel_keys:
+                    parts.append("(platform = ? AND channel_id = ?)")
+                    params.extend([platform, channel_id])
+                clauses.append(f"({' OR '.join(parts)})")
+            if platforms:
+                placeholders = ",".join("?" for _ in platforms)
+                clauses.append(f"platform IN ({placeholders})")
+                params.extend(platforms)
+            if content_kinds:
+                placeholders = ",".join("?" for _ in content_kinds)
+                clauses.append(f"content_kind IN ({placeholders})")
+                params.extend(content_kinds)
             if incomplete_only:
                 clauses.append("metadata_incomplete = 1")
 
@@ -335,7 +427,6 @@ class Database:
             elif sort == "archived_at":
                 order_sql = f"archived_at {order.upper()}"
             else:
-                # upload_date with archived_at fallback for sorting
                 date_key = (
                     "COALESCE(upload_date, "
                     "substr(replace(replace(archived_at,'-',''),'T',''),1,8), "
@@ -364,19 +455,34 @@ class Database:
     ) -> list[VideoRow]:
         if not channel_id:
             return []
+        channel_keys = [(platform, channel_id)]
+        creator = self.get_creator_for_channel(platform, channel_id)
+        if creator is not None:
+            linked = self.list_creator_channels(creator.id)
+            if linked:
+                channel_keys = [(c.platform, c.channel_id) for c in linked]
         with self._lock:
+            parts: list[str] = []
+            params: list[Any] = []
+            for p, cid in channel_keys:
+                parts.append("(platform = ? AND channel_id = ?)")
+                params.extend([p, cid])
+            params.extend([platform, exclude_video_id, platform, channel_id, limit])
             rows = self._conn.execute(
-                """
+                f"""
                 SELECT * FROM videos
-                WHERE platform = ? AND channel_id = ? AND platform_video_id != ?
-                ORDER BY COALESCE(
-                    upload_date,
-                    substr(replace(replace(archived_at,'-',''),'T',''),1,8),
-                    '00000000'
-                ) DESC
+                WHERE ({" OR ".join(parts)})
+                  AND NOT (platform = ? AND platform_video_id = ?)
+                ORDER BY
+                  CASE WHEN platform = ? AND channel_id = ? THEN 0 ELSE 1 END,
+                  COALESCE(
+                      upload_date,
+                      substr(replace(replace(archived_at,'-',''),'T',''),1,8),
+                      '00000000'
+                  ) DESC
                 LIMIT ?
                 """,
-                (platform, channel_id, exclude_video_id, limit),
+                params,
             ).fetchall()
             return [_video_from_row(r) for r in rows]
 
@@ -395,12 +501,17 @@ class Database:
                        CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS favorited,
                        CASE WHEN w.enabled = 1 THEN 1 ELSE 0 END AS watching,
                        w.last_checked_at AS last_checked_at,
-                       w.channel_url AS channel_url
+                       w.channel_url AS channel_url,
+                       cc.creator_id AS creator_id,
+                       cr.display_name AS creator_name
                 FROM videos v
                 LEFT JOIN channel_favorites f
                   ON f.platform = v.platform AND f.channel_id = v.channel_id
                 LEFT JOIN channel_watches w
                   ON w.platform = v.platform AND w.channel_id = v.channel_id
+                LEFT JOIN creator_channels cc
+                  ON cc.platform = v.platform AND cc.channel_id = v.channel_id
+                LEFT JOIN creators cr ON cr.id = cc.creator_id
                 {where}
                 GROUP BY v.platform, v.channel_id
                 ORDER BY watching DESC, favorited DESC,
@@ -418,6 +529,8 @@ class Database:
                     watching=bool(r["watching"]),
                     last_checked_at=r["last_checked_at"],
                     channel_url=r["channel_url"],
+                    creator_id=int(r["creator_id"]) if r["creator_id"] is not None else None,
+                    creator_name=r["creator_name"],
                 )
                 for r in rows
             ]
@@ -453,7 +566,6 @@ class Database:
                     """,
                     (platform, channel_id),
                 )
-                # Keep row for last_checked history; insert disabled if missing
                 existing = self._conn.execute(
                     "SELECT 1 FROM channel_watches WHERE platform = ? AND channel_id = ?",
                     (platform, channel_id),
@@ -524,6 +636,154 @@ class Database:
                 )
             self._conn.commit()
 
+    def create_creator(self, *, display_name: str, notes: str | None = None) -> CreatorRow:
+        now = utc_now_iso()
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO creators (display_name, notes, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (display_name.strip(), notes, now),
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM creators WHERE id = ?", (cur.lastrowid,)
+            ).fetchone()
+            assert row is not None
+            return _creator_from_row(row)
+
+    def get_creator(self, creator_id: int) -> CreatorRow | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM creators WHERE id = ?", (creator_id,)
+            ).fetchone()
+            return _creator_from_row(row) if row else None
+
+    def list_creators(self) -> list[CreatorRow]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM creators ORDER BY LOWER(display_name) ASC"
+            ).fetchall()
+            return [_creator_from_row(r) for r in rows]
+
+    def update_creator(
+        self,
+        creator_id: int,
+        *,
+        display_name: str | None = None,
+        notes: str | None = None,
+        avatar_platform: str | None = None,
+        avatar_channel_id: str | None = None,
+        clear_avatar: bool = False,
+    ) -> CreatorRow | None:
+        with self._lock:
+            existing = self._conn.execute(
+                "SELECT * FROM creators WHERE id = ?", (creator_id,)
+            ).fetchone()
+            if existing is None:
+                return None
+            name = display_name.strip() if display_name is not None else existing["display_name"]
+            note_val = notes if notes is not None else existing["notes"]
+            keys = existing.keys()
+            if clear_avatar:
+                av_platform = None
+                av_channel = None
+            else:
+                av_platform = (
+                    avatar_platform
+                    if avatar_platform is not None
+                    else (existing["avatar_platform"] if "avatar_platform" in keys else None)
+                )
+                av_channel = (
+                    avatar_channel_id
+                    if avatar_channel_id is not None
+                    else (existing["avatar_channel_id"] if "avatar_channel_id" in keys else None)
+                )
+            self._conn.execute(
+                """
+                UPDATE creators
+                SET display_name = ?, notes = ?, avatar_platform = ?, avatar_channel_id = ?
+                WHERE id = ?
+                """,
+                (name, note_val, av_platform, av_channel, creator_id),
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM creators WHERE id = ?", (creator_id,)
+            ).fetchone()
+            assert row is not None
+            return _creator_from_row(row)
+
+    def delete_creator(self, creator_id: int) -> bool:
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM creators WHERE id = ?", (creator_id,))
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def list_creator_channels(self, creator_id: int) -> list[CreatorChannelRow]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM creator_channels
+                WHERE creator_id = ?
+                ORDER BY platform, channel_id
+                """,
+                (creator_id,),
+            ).fetchall()
+            return [
+                CreatorChannelRow(
+                    creator_id=int(r["creator_id"]),
+                    platform=r["platform"],
+                    channel_id=r["channel_id"],
+                )
+                for r in rows
+            ]
+
+    def get_creator_for_channel(self, platform: str, channel_id: str) -> CreatorRow | None:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT c.* FROM creators c
+                JOIN creator_channels cc ON cc.creator_id = c.id
+                WHERE cc.platform = ? AND cc.channel_id = ?
+                """,
+                (platform, channel_id),
+            ).fetchone()
+            return _creator_from_row(row) if row else None
+
+    def attach_channel_to_creator(
+        self,
+        *,
+        creator_id: int,
+        platform: str,
+        channel_id: str,
+    ) -> None:
+        with self._lock:
+            if (
+                self._conn.execute("SELECT 1 FROM creators WHERE id = ?", (creator_id,)).fetchone()
+                is None
+            ):
+                raise ValueError(f"Creator {creator_id} not found")
+            self._conn.execute(
+                """
+                INSERT INTO creator_channels (creator_id, platform, channel_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(platform, channel_id) DO UPDATE SET creator_id = excluded.creator_id
+                """,
+                (creator_id, platform, channel_id),
+            )
+            self._conn.commit()
+
+    def detach_channel_from_creator(self, *, platform: str, channel_id: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM creator_channels WHERE platform = ? AND channel_id = ?",
+                (platform, channel_id),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
     def upsert_video(
         self,
         *,
@@ -540,6 +800,7 @@ class Database:
         upload_date: str | None = None,
         metadata_incomplete: bool = False,
         metadata_gaps: tuple[str, ...] | list[str] | None = None,
+        content_kind: str = "video",
     ) -> tuple[VideoRow, str]:
         existing = self.get_video(platform, platform_video_id)
         if existing is None:
@@ -558,6 +819,7 @@ class Database:
                     upload_date=upload_date,
                     metadata_incomplete=metadata_incomplete,
                     metadata_gaps=metadata_gaps,
+                    content_kind=content_kind,
                 ),
                 "imported",
             )
@@ -570,7 +832,7 @@ class Database:
                 SET title = ?, url = ?, media_relpath = ?, metadata_relpath = ?,
                     checksum_sha256 = ?, archived_at = ?,
                     channel = ?, channel_id = ?, upload_date = ?,
-                    metadata_incomplete = ?, metadata_gaps = ?
+                    metadata_incomplete = ?, metadata_gaps = ?, content_kind = ?
                 WHERE platform = ? AND platform_video_id = ?
                 """,
                 (
@@ -585,6 +847,7 @@ class Database:
                     upload_date,
                     1 if metadata_incomplete else 0,
                     gaps_json,
+                    content_kind or existing.content_kind or "video",
                     platform,
                     platform_video_id,
                 ),
@@ -700,6 +963,9 @@ def _video_from_row(row: sqlite3.Row) -> VideoRow:
         if "metadata_incomplete" in keys
         else False,
         metadata_gaps=_gaps_from_row(row),
+        content_kind=str(row["content_kind"])
+        if "content_kind" in keys and row["content_kind"]
+        else "video",
     )
 
 
@@ -732,4 +998,16 @@ def _watch_from_row(row: sqlite3.Row) -> ChannelWatchRow:
         enabled=bool(row["enabled"]),
         last_checked_at=row["last_checked_at"],
         created_at=row["created_at"],
+    )
+
+
+def _creator_from_row(row: sqlite3.Row) -> CreatorRow:
+    keys = row.keys()
+    return CreatorRow(
+        id=int(row["id"]),
+        display_name=row["display_name"],
+        notes=row["notes"],
+        created_at=row["created_at"],
+        avatar_platform=row["avatar_platform"] if "avatar_platform" in keys else None,
+        avatar_channel_id=row["avatar_channel_id"] if "avatar_channel_id" in keys else None,
     )

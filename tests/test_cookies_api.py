@@ -26,9 +26,10 @@ def test_filter_cookies_endpoint(tmp_env: Settings, tmp_path: Path) -> None:
         assert response.status_code == 200
         body = response.json()
         assert body["cookies_before"] == 5
-        assert body["cookies_after"] == 2
-        assert body["cookies_removed"] == 3
+        assert body["cookies_after"] == 3
+        assert body["cookies_removed"] == 2
         assert "youtube.com" in body["domains_allowed"]
+        assert "twitch.tv" in body["domains_allowed"]
         assert body["backup_path"]
 
         cfg = client.get(
@@ -36,4 +37,4 @@ def test_filter_cookies_endpoint(tmp_env: Settings, tmp_path: Path) -> None:
             headers={"Authorization": "Bearer test-token"},
         ).json()
         assert cfg["cookies_configured"] is True
-        assert cfg["cookie_count"] == 2
+        assert cfg["cookie_count"] == 3

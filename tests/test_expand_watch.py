@@ -9,8 +9,10 @@ from tests.conftest import FakeYtdlpAdapter
 
 from lones_vdl.app import create_app
 from lones_vdl.config import Settings
+from lones_vdl.errors import PermanentDownloadError
 from lones_vdl.media import ProbeResult, StreamInfo
-from lones_vdl.platform.ytdlp import PlaylistEntry, classify_youtube_url
+from lones_vdl.platform.url_router import classify_url, classify_youtube_url
+from lones_vdl.platform.ytdlp import PlaylistEntry
 
 
 class FakeMediaProcessor:
@@ -31,6 +33,29 @@ def test_classify_youtube_url() -> None:
     assert classify_youtube_url("https://www.youtube.com/playlist?list=PLxx") == "playlist"
     assert classify_youtube_url("https://www.youtube.com/@SomeHandle") == "channel"
     assert classify_youtube_url("https://www.youtube.com/channel/UCabcdef") == "channel"
+
+
+def test_classify_twitch_urls() -> None:
+    vod = classify_url("https://www.twitch.tv/videos/123456789")
+    assert vod.platform == "twitch"
+    assert vod.kind == "video"
+    assert vod.content_kind == "vod"
+    assert vod.hint_id == "123456789"
+
+    clip = classify_url("https://clips.twitch.tv/FunnyClip-abc")
+    assert clip.platform == "twitch"
+    assert clip.content_kind == "clip"
+    assert clip.hint_id == "FunnyClip-abc"
+
+    channel = classify_url("https://www.twitch.tv/some_streamer")
+    assert channel.kind == "channel"
+    assert channel.hint_id == "some_streamer"
+
+    try:
+        classify_url("https://www.twitch.tv/some_streamer/clips")
+        raise AssertionError("expected clips listing to fail")
+    except PermanentDownloadError as exc:
+        assert exc.code == "unsupported_url"
 
 
 def _wait(client: TestClient, job_id: str, headers: dict[str, str]) -> dict:

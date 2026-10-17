@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from lones_vdl.db import Database, utc_now_iso
 from lones_vdl.metadata_fields import extract_browse_fields
+from lones_vdl.platform.url_router import fallback_watch_url, infer_content_kind
 from lones_vdl.storage import (
     CHANNELS_DIR_NAME,
     ItemPaths,
@@ -225,9 +226,7 @@ def _sidecar_fields(paths: ItemPaths) -> dict[str, Any]:
     checksum = _load_expected_checksum(paths, media.name)
     if checksum is None:
         checksum = sha256_file(media)
-    fallback_url = archive.get("original_url") or (
-        f"https://www.youtube.com/watch?v={paths.video_id}" if paths.platform == "youtube" else None
-    )
+    fallback_url = archive.get("original_url") or fallback_watch_url(paths.platform, paths.video_id)
     browse = extract_browse_fields(source, fallback_url=fallback_url)
     archived_at = archive.get("downloaded_at") or utc_now_iso()
     metadata_relpath = (
@@ -235,6 +234,13 @@ def _sidecar_fields(paths: ItemPaths) -> dict[str, Any]:
         if paths.metadata_path.is_file()
         else relpath_under(paths.archive_root, media)
     )
+    content_kind = archive.get("content_kind")
+    if not content_kind:
+        content_kind = infer_content_kind(
+            platform=paths.platform,
+            url=str(fallback_url or browse.url or ""),
+            raw=source if isinstance(source, dict) else None,
+        )
     return {
         "title": browse.title,
         "url": browse.url or str(fallback_url or paths.video_id),
@@ -247,6 +253,7 @@ def _sidecar_fields(paths: ItemPaths) -> dict[str, Any]:
         "upload_date": browse.upload_date,
         "metadata_incomplete": browse.incomplete,
         "metadata_gaps": browse.gaps,
+        "content_kind": str(content_kind),
     }
 
 
@@ -285,6 +292,7 @@ def rescan_archive(db: Database, archive_root: Path) -> RescanReport:
                 upload_date=fields["upload_date"],
                 metadata_incomplete=fields["metadata_incomplete"],
                 metadata_gaps=fields["metadata_gaps"],
+                content_kind=fields["content_kind"],
             )
             if action == "imported":
                 report.imported += 1

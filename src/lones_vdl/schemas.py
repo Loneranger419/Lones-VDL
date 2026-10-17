@@ -8,11 +8,15 @@ from pydantic import BaseModel, Field
 
 
 class EnqueueRequest(BaseModel):
-    url: str = Field(..., min_length=8, description="YouTube video, playlist, or channel URL")
+    url: str = Field(
+        ...,
+        min_length=8,
+        description="YouTube or Twitch video/VOD/clip, playlist, or channel URL",
+    )
     quality_preference: str = Field(default="best", min_length=1)
     watch_new: bool = Field(
         default=False,
-        description="When enqueueing a channel URL, enable watch-for-new-uploads",
+        description="When enqueueing a channel URL, enable watch-for-new uploads/VODs",
     )
 
 
@@ -49,6 +53,7 @@ class VideoResponse(BaseModel):
     upload_date: str | None = None
     metadata_incomplete: bool = False
     metadata_gaps: list[str] = Field(default_factory=list)
+    content_kind: str = "video"
 
 
 class PlaybackInfo(BaseModel):
@@ -77,6 +82,8 @@ class ChannelResponse(BaseModel):
     watching: bool = False
     last_checked_at: str | None = None
     channel_url: str | None = None
+    creator_id: int | None = None
+    creator_name: str | None = None
 
 
 class FavoriteRequest(BaseModel):
@@ -97,6 +104,42 @@ class WatchCheckItem(BaseModel):
     detail: str
     enqueued: int
     skipped: int
+
+
+class CreatorChannelRef(BaseModel):
+    platform: str
+    channel_id: str
+    channel: str | None = None
+    has_thumbnail: bool = False
+
+
+class CreatorResponse(BaseModel):
+    id: int
+    display_name: str
+    notes: str | None = None
+    created_at: str
+    channels: list[CreatorChannelRef] = Field(default_factory=list)
+    avatar_platform: str | None = None
+    avatar_channel_id: str | None = None
+    has_thumbnail: bool = False
+
+
+class CreatorCreateRequest(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=200)
+    notes: str | None = None
+
+
+class CreatorUpdateRequest(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=200)
+    notes: str | None = None
+    avatar_platform: str | None = None
+    avatar_channel_id: str | None = None
+    clear_avatar: bool = False
+
+
+class CreatorAttachRequest(BaseModel):
+    platform: str = Field(..., min_length=1)
+    channel_id: str = Field(..., min_length=1)
 
 
 class RefreshResultResponse(BaseModel):

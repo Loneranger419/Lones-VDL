@@ -33,6 +33,11 @@ from lones_vdl.platform.ytdlp import YtdlpAdapter, YtdlpCliAdapter
 from lones_vdl.schemas import (
     ChannelResponse,
     CookieFilterResponse,
+    CreatorAttachRequest,
+    CreatorChannelRef,
+    CreatorCreateRequest,
+    CreatorResponse,
+    CreatorUpdateRequest,
     EnqueueRequest,
     FavoriteRequest,
     JobResponse,
@@ -89,7 +94,84 @@ def _channel_response(archive_root: Path, c: ChannelRow) -> ChannelResponse:
         watching=c.watching,
         last_checked_at=c.last_checked_at,
         channel_url=c.channel_url,
+        creator_id=c.creator_id,
+        creator_name=c.creator_name,
     )
+
+
+def _parse_channel_keys(raw: list[str] | None) -> list[tuple[str, str]]:
+    """Parse ``platform:channel_id`` keys from query params."""
+    keys: list[tuple[str, str]] = []
+    for item in raw or []:
+        if ":" not in item:
+            continue
+        platform, channel_id = item.split(":", 1)
+        platform = platform.strip()
+        channel_id = channel_id.strip()
+        if platform and channel_id:
+            keys.append((platform, channel_id))
+    return keys
+
+
+def _creator_response(
+    db: Database,
+    archive_root: Path,
+    creator_id: int,
+) -> CreatorResponse | None:
+    creator = db.get_creator(creator_id)
+    if creator is None:
+        return None
+    linked = db.list_creator_channels(creator_id)
+    channel_meta = {(c.platform, c.channel_id): c for c in db.list_channels()}
+    channel_refs: list[CreatorChannelRef] = []
+    for link in linked:
+        meta = channel_meta.get((link.platform, link.channel_id))
+        channel_refs.append(
+            CreatorChannelRef(
+                platform=link.platform,
+                channel_id=link.channel_id,
+                channel=meta.channel if meta else None,
+                has_thumbnail=channel_has_avatar(archive_root, link.platform, link.channel_id),
+            )
+        )
+    avatar_platform = creator.avatar_platform
+    avatar_channel_id = creator.avatar_channel_id
+    if avatar_platform and avatar_channel_id:
+        has_thumb = channel_has_avatar(archive_root, avatar_platform, avatar_channel_id)
+    else:
+        has_thumb = any(ref.has_thumbnail for ref in channel_refs)
+    return CreatorResponse(
+        id=creator.id,
+        display_name=creator.display_name,
+        notes=creator.notes,
+        created_at=creator.created_at,
+        channels=channel_refs,
+        avatar_platform=avatar_platform,
+        avatar_channel_id=avatar_channel_id,
+        has_thumbnail=has_thumb,
+    )
+
+
+def _resolve_creator_avatar(
+    db: Database,
+    archive_root: Path,
+    creator_id: int,
+) -> Path | None:
+    creator = db.get_creator(creator_id)
+    if creator is None:
+        return None
+    candidates: list[tuple[str, str]] = []
+    if creator.avatar_platform and creator.avatar_channel_id:
+        candidates.append((creator.avatar_platform, creator.avatar_channel_id))
+    for link in db.list_creator_channels(creator_id):
+        key = (link.platform, link.channel_id)
+        if key not in candidates:
+            candidates.append(key)
+    for platform, channel_id in candidates:
+        path = resolve_channel_avatar_file(archive_root, platform, channel_id)
+        if path is not None:
+            return path
+    return None
 
 
 def create_app(
@@ -321,7 +403,9 @@ def create_app(
     def list_videos(
         limit: int = 100,
         q: str | None = None,
-        channel_id: Annotated[list[str] | None, Query()] = None,
+        channel: Annotated[list[str] | None, Query()] = None,
+        platform: Annotated[list[str] | None, Query()] = None,
+        content_kind: Annotated[list[str] | None, Query()] = None,
         sort: str = "upload_date",
         order: str = "desc",
         incomplete_only: bool = False,
@@ -329,7 +413,9 @@ def create_app(
         videos = service.list_videos(
             limit=limit,
             q=q,
-            channel_ids=channel_id,
+            channel_keys=_parse_channel_keys(channel),
+            platforms=platform or None,
+            content_kinds=content_kind or None,
             sort=sort,
             order=order,
             incomplete_only=incomplete_only,
@@ -365,6 +451,7 @@ def create_app(
         channels = {(c.platform, c.channel_id): c for c in db.list_channels(platform=platform)}
         row = channels.get((platform, channel_id))
         if row is None:
+            linked = db.get_creator_for_channel(platform, channel_id)
             return ChannelResponse(
                 platform=platform,
                 channel_id=channel_id,
@@ -372,6 +459,8 @@ def create_app(
                 video_count=0,
                 favorited=body.favorited,
                 has_thumbnail=channel_has_avatar(settings.archive_root, platform, channel_id),
+                creator_id=linked.id if linked else None,
+                creator_name=linked.display_name if linked else None,
             )
         return _channel_response(settings.archive_root, row)
 
@@ -395,6 +484,7 @@ def create_app(
         channels = {(c.platform, c.channel_id): c for c in db.list_channels(platform=platform)}
         row = channels.get((platform, channel_id))
         if row is None:
+            linked = db.get_creator_for_channel(platform, channel_id)
             return ChannelResponse(
                 platform=platform,
                 channel_id=channel_id,
@@ -404,6 +494,8 @@ def create_app(
                 has_thumbnail=channel_has_avatar(settings.archive_root, platform, channel_id),
                 watching=body.watching,
                 channel_url=body.channel_url,
+                creator_id=linked.id if linked else None,
+                creator_name=linked.display_name if linked else None,
             )
         return _channel_response(settings.archive_root, row)
 
@@ -416,6 +508,154 @@ def create_app(
         return [WatchCheckItem(**item) for item in service.check_watched_channels()]
 
     @app.get(
+        "/api/creators",
+        response_model=list[CreatorResponse],
+        dependencies=[Depends(require_token)],
+    )
+    def list_creators() -> list[CreatorResponse]:
+        out: list[CreatorResponse] = []
+        for creator in db.list_creators():
+            resp = _creator_response(db, settings.archive_root, creator.id)
+            if resp is not None:
+                out.append(resp)
+        return out
+
+    @app.post(
+        "/api/creators",
+        response_model=CreatorResponse,
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(require_token)],
+    )
+    def create_creator(body: CreatorCreateRequest) -> CreatorResponse:
+        creator = db.create_creator(display_name=body.display_name, notes=body.notes)
+        resp = _creator_response(db, settings.archive_root, creator.id)
+        assert resp is not None
+        return resp
+
+    @app.get(
+        "/api/creators/{creator_id}",
+        response_model=CreatorResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def get_creator(creator_id: int) -> CreatorResponse:
+        resp = _creator_response(db, settings.archive_root, creator_id)
+        if resp is None:
+            raise HTTPException(status_code=404, detail="Creator not found")
+        return resp
+
+    @app.patch(
+        "/api/creators/{creator_id}",
+        response_model=CreatorResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def update_creator(creator_id: int, body: CreatorUpdateRequest) -> CreatorResponse:
+        if body.avatar_platform and body.avatar_channel_id:
+            linked = {(c.platform, c.channel_id) for c in db.list_creator_channels(creator_id)}
+            if (body.avatar_platform, body.avatar_channel_id) not in linked:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Avatar channel must be linked to this creator",
+                )
+        updated = db.update_creator(
+            creator_id,
+            display_name=body.display_name,
+            notes=body.notes,
+            avatar_platform=body.avatar_platform,
+            avatar_channel_id=body.avatar_channel_id,
+            clear_avatar=body.clear_avatar,
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Creator not found")
+        resp = _creator_response(db, settings.archive_root, creator_id)
+        assert resp is not None
+        return resp
+
+    @app.delete(
+        "/api/creators/{creator_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        dependencies=[Depends(require_token)],
+    )
+    def delete_creator(creator_id: int) -> None:
+        if not db.delete_creator(creator_id):
+            raise HTTPException(status_code=404, detail="Creator not found")
+
+    @app.get(
+        "/api/creators/{creator_id}/thumbnail",
+        dependencies=[Depends(require_token)],
+    )
+    def get_creator_thumbnail(creator_id: int) -> FileResponse:
+        if db.get_creator(creator_id) is None:
+            raise HTTPException(status_code=404, detail="Creator not found")
+        avatar = _resolve_creator_avatar(db, settings.archive_root, creator_id)
+        if avatar is None:
+            # Best-effort: fetch missing Twitch/YouTube avatars for linked channels.
+            for link in db.list_creator_channels(creator_id):
+                channel_url = None
+                for video in db.list_videos(
+                    limit=5, channel_keys=[(link.platform, link.channel_id)]
+                ):
+                    source, _archive = load_sidecar(settings.archive_root, video)
+                    if source:
+                        channel_url = channel_url_from_source(source)
+                        if channel_url:
+                            break
+                ensure_channel_avatar(
+                    archive_root=settings.archive_root,
+                    platform=link.platform,
+                    channel_id=link.channel_id,
+                    channel_url=channel_url,
+                    adapter=ytdlp,
+                )
+            avatar = _resolve_creator_avatar(db, settings.archive_root, creator_id)
+        if avatar is None or not avatar.is_file():
+            raise HTTPException(status_code=404, detail="Creator thumbnail not found")
+        return FileResponse(avatar)
+
+    @app.put(
+        "/api/creators/{creator_id}/channels",
+        response_model=CreatorResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def attach_creator_channel(creator_id: int, body: CreatorAttachRequest) -> CreatorResponse:
+        if db.get_creator(creator_id) is None:
+            raise HTTPException(status_code=404, detail="Creator not found")
+        try:
+            db.attach_channel_to_creator(
+                creator_id=creator_id,
+                platform=body.platform.strip().lower(),
+                channel_id=body.channel_id.strip(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        resp = _creator_response(db, settings.archive_root, creator_id)
+        assert resp is not None
+        return resp
+
+    @app.delete(
+        "/api/creators/{creator_id}/channels/{platform}/{channel_id}",
+        response_model=CreatorResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def detach_creator_channel(
+        creator_id: int,
+        platform: str,
+        channel_id: str,
+    ) -> CreatorResponse:
+        if db.get_creator(creator_id) is None:
+            raise HTTPException(status_code=404, detail="Creator not found")
+        db.detach_channel_from_creator(platform=platform, channel_id=channel_id)
+        creator = db.get_creator(creator_id)
+        if (
+            creator
+            and creator.avatar_platform == platform
+            and creator.avatar_channel_id == channel_id
+        ):
+            db.update_creator(creator_id, clear_avatar=True)
+        resp = _creator_response(db, settings.archive_root, creator_id)
+        assert resp is not None
+        return resp
+
+    @app.get(
         "/api/channels/{platform}/{channel_id}/thumbnail",
         dependencies=[Depends(require_token)],
     )
@@ -424,9 +664,7 @@ def create_app(
         if avatar is None:
             # Lazy backfill from first archived video's channel_url / metadata refresh path.
             channel_url = None
-            for video in db.list_videos(limit=5, channel_ids=[channel_id]):
-                if video.platform != platform:
-                    continue
+            for video in db.list_videos(limit=5, channel_keys=[(platform, channel_id)]):
                 source, _archive = load_sidecar(settings.archive_root, video)
                 if source:
                     channel_url = channel_url_from_source(source)

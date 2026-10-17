@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import shutil
 import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 from lones_vdl.errors import (
@@ -19,20 +18,32 @@ from lones_vdl.errors import (
     PermanentDownloadError,
     TransientDownloadError,
 )
+from lones_vdl.platform.url_router import (
+    UrlKind,
+    classify_url,
+    classify_youtube_url,
+    fallback_watch_url,
+    normalize_list_url,
+    parse_youtube_id,
+)
+from lones_vdl.storage import PLATFORM_YOUTUBE
 
 logger = logging.getLogger(__name__)
 
-# Common YouTube URL shapes for a fast local id parse (adapter still authoritative).
-_YOUTUBE_ID_RE = re.compile(
-    r"(?:youtu\.be/|youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|live/))([A-Za-z0-9_-]{11})"
-)
-_PLAYLIST_RE = re.compile(r"(?:[?&]list=|/playlist\?)([A-Za-z0-9_-]+)")
-_CHANNEL_PATH_RE = re.compile(
-    r"youtube\.com/(?:@[\w.-]+|(?:channel|c|user)/[^/?#]+)",
-    re.IGNORECASE,
-)
-
-UrlKind = Literal["video", "playlist", "channel"]
+# Re-export for existing imports/tests.
+__all__ = [
+    "DownloadResult",
+    "PlaylistEntry",
+    "PlaylistListing",
+    "VideoInfo",
+    "YtdlpAdapter",
+    "YtdlpCliAdapter",
+    "classify_url",
+    "classify_youtube_url",
+    "listing_from_ytdlp_json",
+    "parse_youtube_id",
+    "summarize_ytdlp_output",
+]
 
 
 @dataclass(frozen=True)
@@ -66,6 +77,7 @@ class PlaylistEntry:
 @dataclass(frozen=True)
 class PlaylistListing:
     kind: UrlKind
+    platform: str
     list_id: str | None
     title: str | None
     url: str
@@ -93,39 +105,22 @@ class YtdlpAdapter(Protocol):
     ) -> DownloadResult: ...
 
 
-def parse_youtube_id(url: str) -> str | None:
-    match = _YOUTUBE_ID_RE.search(url)
-    return match.group(1) if match else None
-
-
-def classify_youtube_url(url: str) -> UrlKind:
-    """Classify URL for enqueue routing. watch?v=&list= is still a single video."""
-    lowered = url.lower()
-    if _CHANNEL_PATH_RE.search(lowered):
-        return "channel"
-    if "playlist" in lowered or re.search(r"[?&]list=", lowered):
-        # Bare playlist pages, or list= without a primary video id intent.
-        if parse_youtube_id(url) and re.search(r"[?&]v=", lowered):
-            return "video"
-        if parse_youtube_id(url) and "youtu.be/" in lowered and "list=" in lowered:
-            return "video"
-        return "playlist"
-    return "video"
-
-
 def _entry_from_raw(
     entry: dict[str, Any],
     *,
     fallback_channel: dict[str, Any],
+    platform: str,
 ) -> PlaylistEntry | None:
     video_id = str(entry.get("id") or entry.get("url") or "")
     if not video_id or video_id.startswith(("http://", "https://")):
-        # Sometimes id is missing and url is a full watch URL
-        parsed = parse_youtube_id(str(entry.get("url") or entry.get("webpage_url") or ""))
-        video_id = parsed or ""
-    if not video_id or len(video_id) < 6:
+        webpage = str(entry.get("url") or entry.get("webpage_url") or "")
+        if platform == PLATFORM_YOUTUBE:
+            parsed = parse_youtube_id(webpage)
+            video_id = parsed or ""
+        else:
+            video_id = ""
+    if not video_id or len(video_id) < 3:
         return None
-    # Skip non-video playlist tabs
     entry_type = str(entry.get("_type") or entry.get("ie_key") or "").lower()
     if entry_type in {"playlist", "channel"}:
         return None
@@ -133,7 +128,9 @@ def _entry_from_raw(
     if isinstance(webpage, str) and webpage.startswith("http"):
         watch_url = webpage
     else:
-        watch_url = f"https://www.youtube.com/watch?v={video_id}"
+        watch_url = fallback_watch_url(platform, video_id) or webpage or video_id
+        if not isinstance(watch_url, str) or not watch_url.startswith("http"):
+            return None
     channel = entry.get("channel") or entry.get("uploader") or fallback_channel.get("channel")
     channel_id = (
         entry.get("channel_id") or entry.get("uploader_id") or fallback_channel.get("channel_id")
@@ -152,7 +149,13 @@ def _entry_from_raw(
     )
 
 
-def listing_from_ytdlp_json(raw: dict[str, Any], *, url: str, kind: UrlKind) -> PlaylistListing:
+def listing_from_ytdlp_json(
+    raw: dict[str, Any],
+    *,
+    url: str,
+    kind: UrlKind,
+    platform: str,
+) -> PlaylistListing:
     fallback = {
         "channel": raw.get("channel") or raw.get("uploader"),
         "channel_id": raw.get("channel_id") or raw.get("uploader_id") or raw.get("id"),
@@ -164,7 +167,7 @@ def listing_from_ytdlp_json(raw: dict[str, Any], *, url: str, kind: UrlKind) -> 
         for item in entries_raw:
             if not isinstance(item, dict):
                 continue
-            parsed = _entry_from_raw(item, fallback_channel=fallback)
+            parsed = _entry_from_raw(item, fallback_channel=fallback, platform=platform)
             if parsed is not None:
                 entries.append(parsed)
     list_id = str(raw.get("id") or "") or None
@@ -176,6 +179,7 @@ def listing_from_ytdlp_json(raw: dict[str, Any], *, url: str, kind: UrlKind) -> 
         channel_id = list_id
     return PlaylistListing(
         kind=kind,
+        platform=platform,
         list_id=list_id,
         title=title,
         url=str(raw.get("webpage_url") or url),
@@ -218,11 +222,14 @@ def _classify_ytdlp_error(stderr: str, returncode: int) -> Exception:
             "confirm your age",
             "members-only",
             "private video",
+            "oauth",
+            "unauthorized",
         )
     ):
         return AuthConfigError(
             "Authentication or cookies required (or cookies expired). "
-            "Set LONES_VDL_YTDLP_COOKIES_FILE to a Netscape cookies.txt you exported."
+            "Set LONES_VDL_YTDLP_COOKIES_FILE to a Netscape cookies.txt you exported "
+            "(include youtube and/or twitch domains as needed)."
         )
     if any(
         needle in text
@@ -246,6 +253,7 @@ def _classify_ytdlp_error(stderr: str, returncode: int) -> Exception:
             "copyright",
             "violating",
             "no video formats",
+            "vod does not exist",
         )
     ):
         return PermanentDownloadError(summary or f"yt-dlp failed ({returncode})")
@@ -298,6 +306,7 @@ class YtdlpCliAdapter:
         return result.stdout.strip() or None
 
     def extract_info(self, url: str) -> VideoInfo:
+        classified = classify_url(url)
         cmd = [
             *self._base_cmd(),
             "--dump-single-json",
@@ -312,7 +321,7 @@ class YtdlpCliAdapter:
         if not video_id:
             raise PermanentDownloadError("yt-dlp returned metadata without an id")
         return VideoInfo(
-            platform="youtube",
+            platform=classified.platform,
             video_id=video_id,
             url=str(raw.get("webpage_url") or url),
             title=raw.get("title"),
@@ -320,13 +329,10 @@ class YtdlpCliAdapter:
         )
 
     def list_entries(self, url: str) -> PlaylistListing:
-        kind = classify_youtube_url(url)
-        if kind == "video":
+        classified = classify_url(url)
+        if classified.kind == "video":
             raise PermanentDownloadError("list_entries requires a playlist or channel URL")
-        # Prefer uploads tab for channel handles when not already on a tab.
-        list_url = url
-        if kind == "channel" and re.search(r"youtube\.com/@[\w.-]+/?$", url, re.I):
-            list_url = url.rstrip("/") + "/videos"
+        list_url = normalize_list_url(classified)
         cmd = [
             self._exe(),
             "--newline",
@@ -342,7 +348,9 @@ class YtdlpCliAdapter:
         raw = json.loads(result.stdout)
         if not isinstance(raw, dict):
             raise PermanentDownloadError("yt-dlp playlist metadata was not an object")
-        return listing_from_ytdlp_json(raw, url=list_url, kind=kind)
+        return listing_from_ytdlp_json(
+            raw, url=list_url, kind=classified.kind, platform=classified.platform
+        )
 
     def extract_channel_info(self, channel_url: str) -> dict[str, Any]:
         # Channel pages are playlists; skip videos, keep channel thumbnails.
@@ -433,6 +441,7 @@ class YtdlpCliAdapter:
         output_dir: Path,
         quality_preference: str,
     ) -> DownloadResult:
+        classified = classify_url(url)
         output_dir.mkdir(parents=True, exist_ok=True)
         outtmpl = str(output_dir / "media.%(ext)s")
         fmt = quality_preference if quality_preference != "best" else "bv*+ba/b"
@@ -462,7 +471,7 @@ class YtdlpCliAdapter:
         if info_json_files:
             raw = json.loads(info_json_files[0].read_text(encoding="utf-8"))
             info = VideoInfo(
-                platform="youtube",
+                platform=classified.platform,
                 video_id=str(raw.get("id") or ""),
                 url=str(raw.get("webpage_url") or url),
                 title=raw.get("title"),

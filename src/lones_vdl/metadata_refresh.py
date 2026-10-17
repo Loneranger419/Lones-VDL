@@ -68,6 +68,7 @@ def refresh_video_metadata(
             upload_date=browse.upload_date or video.upload_date,
             metadata_incomplete=True,
             metadata_gaps=tuple(dict.fromkeys([*browse.gaps, "refresh_failed"])),
+            content_kind=video.content_kind,
         )
         return RefreshResult(
             platform=video.platform,
@@ -107,6 +108,7 @@ def refresh_video_metadata(
         upload_date=browse.upload_date,
         metadata_incomplete=browse.incomplete,
         metadata_gaps=browse.gaps,
+        content_kind=video.content_kind,
     )
     return RefreshResult(
         platform=video.platform,

@@ -3,7 +3,7 @@
 Cross-platform (Windows develop → Linux/Docker deploy) video archival system focused on
 reliable long-term preservation of YouTube and Twitch content and metadata.
 
-**Status:** YouTube singles + View/Download browse; playlists/channel expand + channel watch.
+**Status:** YouTube + Twitch VODs/clips; View/Download browse; playlists/channel expand + watch; creator hub.
 
 ## Architecture
 
@@ -16,6 +16,21 @@ See [docs/architecture.md](docs/architecture.md) and [AGENTS.md](AGENTS.md).
 - Node.js 20+ when building the web UI (placeholder present; not required for API smoke tests)
 
 ## Quick start (Windows)
+
+One-shot local UI + API (verifies `.venv` / deps, starts API here, opens Vite in a second terminal):
+
+```powershell
+# First time (creates .venv, pip install -e ".[dev]", npm install, copies .env):
+powershell -File scripts\dev.ps1 -Install
+
+# Later:
+powershell -File scripts\dev.ps1
+# or: scripts\dev.cmd
+```
+
+Flags: `-ApiOnly`, `-WebOnly`. API: `http://127.0.0.1:8080` · UI: `http://127.0.0.1:5173` (enter `LONES_VDL_API_TOKEN` from `.env`).
+
+Manual equivalent:
 
 ```powershell
 python -m venv .venv
@@ -55,20 +70,18 @@ python -m lones_vdl enqueue --sync "https://www.youtube.com/watch?v=VIDEO_ID"
 
 ### Web UI (dev)
 
-Terminal 1 — API:
+Prefer `scripts\dev.ps1` (above). Manual:
 
 ```powershell
+# Terminal 1
 python -m lones_vdl serve
-```
 
-Terminal 2 — UI (proxies `/api` to `:8080`):
-
-```powershell
+# Terminal 2 — proxies /api to :8080
 cd web
 npm run dev
 ```
 
-Open the Vite URL, enter your `LONES_VDL_API_TOKEN`, browse the library.
+Open `http://127.0.0.1:5173`, enter your `LONES_VDL_API_TOKEN`, browse the library.
 AV1+Opus archives remux to WebM on first play (original untouched).
 
 ## Verification
@@ -99,14 +112,14 @@ docker compose up --build
 5. ~~Desktop client~~ — cancelled (LAN/VPN web UI only)
 6. View|Download browse + channel avatars — done
 7. Playlist/channel expand + channel watch + delete entry — done
-8. Twitch archival — next
-9. Headless Linux/Docker deploy + NAS bind-mount — last
+8. Twitch VODs/clips + creator hub — done
+9. Headless Linux/Docker deploy + NAS bind-mount — next
 
-Enqueue accepts video, playlist, or channel URLs. Channel “Watch” re-lists uploads on an interval (`LONES_VDL_CHANNEL_WATCH_INTERVAL_HOURS`) and via **Check watched now**. Downloads are media-first; English subs are best-effort (subtitle 429s do not fail the job). Prefer a yt-dlp build with `curl_cffi` impersonation on the host.
+Enqueue accepts YouTube video/playlist/channel and Twitch VOD/clip/channel URLs. Channel “Watch” re-lists YouTube uploads or Twitch VOD archives on an interval (`LONES_VDL_CHANNEL_WATCH_INTERVAL_HOURS`) and via **Check watched now** (Twitch clips stay manual). Library filters: platform, content kind (`video` / `vod` / `clip`), and `platform:channel_id` channel keys. Creator hub links channels across sites for related/up-next. Downloads are media-first; English subs are best-effort. Prefer a yt-dlp build with `curl_cffi` impersonation on the host. Cookie filter defaults include youtube + twitch.
 
-**Next session leftovers:** optional View channel-bar polish; confirm curl_cffi/official yt-dlp on the machine that runs playlists; Twitch then deploy.
+**Next session leftovers:** optional View channel-bar polish; confirm curl_cffi/official yt-dlp on the download host; Linux/Docker + NAS deploy.
 
-**Manual smoke:** paste a small playlist (or an unlisted one you create with short clips such as [Me at the zoo](https://www.youtube.com/watch?v=jNQXAC9IVRw)), and a channel you control with few uploads for watch testing.
+**Manual smoke:** YouTube playlist or channel; one Twitch VOD + one clip; Twitch channel watch; link YT+Twitch under one creator and confirm related crosses sites.
 
 CLI: `python -m lones_vdl verify` · `python -m lones_vdl rescan`
 

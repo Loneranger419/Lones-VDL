@@ -5,8 +5,8 @@ Follow global user rules; do not duplicate them here.
 
 ## Purpose
 
-Server-first archival service for YouTube (MVP) and Twitch (later): download, preserve
-media + metadata, index in SQLite, browse/play via web UI. Desktop is a thin remote client later.
+Server-first archival service for YouTube and Twitch: download, preserve media + metadata,
+index in SQLite, browse/play via web UI. Creator hub links channels across sites.
 
 ## Architecture boundaries
 
@@ -14,7 +14,7 @@ Keep these layers separate (see `docs/architecture.md`):
 
 | Area | Responsibility |
 |------|----------------|
-| `platform` / adapters | yt-dlp invocation and error mapping only |
+| `platform` / adapters | yt-dlp invocation, URL routing, error mapping only |
 | download manager | queue, concurrency, progress, retry, duplicates |
 | storage | paths, atomic complete, sidecars on archive root |
 | integrity | checksums, rescan, verify |
@@ -31,13 +31,13 @@ Do not add microservices, Redis, or Celery without an explicit decision.
 - No custom downloaders; no DRM bypass; no automated credential harvesting.
 - Cookies: optional operator-supplied Netscape cookie file via config; never commit or log secrets.
 - Cookie filter (`POST /api/cookies/filter`) keeps domains for `LONES_VDL_COOKIE_PLATFORMS`
-  (youtube now; add twitch later). Never return cookie values from the API.
+  (default `youtube,twitch`). Never return cookie values from the API.
 
 ## Data and paths
 
 - Archive root and DB path come from config (`LONES_VDL_*`); use `pathlib`; no hard-coded drive letters.
 - SQLite must stay on **local** disk; media/sidecars may live on a mounted share.
-- Prefer ID-based directories under `youtube/<video_id>/`.
+- Prefer ID-based directories under `<platform>/<video_id>/` (`youtube/`, `twitch/`).
 
 ## Security
 
@@ -62,7 +62,8 @@ Real YouTube downloads are manual/gated (network, ToS, flakes) — mock yt-dlp i
 
 ## Out of scope until milestones say otherwise
 
-Twitch, live recording, transcoding, multi-user auth.
+Live recording, Twitch clip auto-watch, transcoding, multi-user auth.
 Desktop app cancelled — use the web UI over LAN/VPN.
 
-Playlists/channel uploads + optional channel watch are in scope (expand into per-video jobs).
+Playlists/channel uploads + optional channel watch (YouTube uploads / Twitch VODs) are in scope.
+Creator hub links are manual (no auto-match).

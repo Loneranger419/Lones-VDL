@@ -19,14 +19,9 @@ from lones_vdl.errors import (
     TransientDownloadError,
 )
 from lones_vdl.metadata_fields import extract_browse_fields, source_snapshot
-from lones_vdl.platform.ytdlp import (
-    PlaylistListing,
-    YtdlpAdapter,
-    classify_youtube_url,
-    parse_youtube_id,
-)
+from lones_vdl.platform.url_router import classify_url, infer_content_kind, watch_fallback_url
+from lones_vdl.platform.ytdlp import PlaylistListing, YtdlpAdapter
 from lones_vdl.storage import (
-    PLATFORM_YOUTUBE,
     discard_partial,
     item_paths,
     prepare_partial_dir,
@@ -67,22 +62,21 @@ class ArchiveService:
         auto_start: bool = True,
         watch_new: bool = False,
     ) -> JobRow:
-        kind = classify_youtube_url(url)
-        if kind == "video":
-            hint_id = parse_youtube_id(url)
-            if hint_id:
-                existing = self.db.get_video(PLATFORM_YOUTUBE, hint_id)
+        classified = classify_url(url)
+        if classified.kind == "video":
+            if classified.hint_id:
+                existing = self.db.get_video(classified.platform, classified.hint_id)
                 if existing is not None:
                     raise DuplicateArchiveError(
-                        f"Video {hint_id} is already archived",
-                        platform_video_id=hint_id,
+                        f"Video {classified.hint_id} is already archived",
+                        platform_video_id=classified.hint_id,
                     )
             job = self.db.create_job(
                 job_id=str(uuid.uuid4()),
                 url=url,
                 quality_preference=quality_preference,
-                platform=PLATFORM_YOUTUBE,
-                platform_video_id=hint_id,
+                platform=classified.platform,
+                platform_video_id=classified.hint_id,
                 job_kind="video",
             )
         else:
@@ -90,9 +84,9 @@ class ArchiveService:
                 job_id=str(uuid.uuid4()),
                 url=url,
                 quality_preference=quality_preference,
-                platform=PLATFORM_YOUTUBE,
-                watch_new=watch_new and kind == "channel",
-                job_kind=kind,
+                platform=classified.platform,
+                watch_new=watch_new and classified.kind == "channel",
+                job_kind=classified.kind,
             )
         if auto_start:
             self._executor.submit(self._process_job, job.id)
@@ -106,26 +100,26 @@ class ArchiveService:
         return self._run_job(job)
 
     def check_watched_channels(self) -> list[dict[str, Any]]:
-        """Re-list enabled watches and enqueue any new uploads."""
+        """Re-list enabled watches and enqueue any new uploads/VODs."""
         reports: list[dict[str, Any]] = []
         for watch in self.db.list_enabled_watches():
-            url = watch.channel_url
+            url = watch_fallback_url(
+                platform=watch.platform,
+                channel_id=watch.channel_id,
+                channel_url=watch.channel_url,
+            )
             if not url:
-                # Fall back to channel page from id
-                if watch.channel_id.startswith("UC"):
-                    url = f"https://www.youtube.com/channel/{watch.channel_id}/videos"
-                else:
-                    reports.append(
-                        {
-                            "platform": watch.platform,
-                            "channel_id": watch.channel_id,
-                            "status": "skipped",
-                            "detail": "No channel_url stored",
-                            "enqueued": 0,
-                            "skipped": 0,
-                        }
-                    )
-                    continue
+                reports.append(
+                    {
+                        "platform": watch.platform,
+                        "channel_id": watch.channel_id,
+                        "status": "skipped",
+                        "detail": "No channel_url stored",
+                        "enqueued": 0,
+                        "skipped": 0,
+                    }
+                )
+                continue
             try:
                 listing = self.adapter.list_entries(url)
                 enqueued, skipped = self._fanout_listing(
@@ -167,7 +161,9 @@ class ArchiveService:
             job = self.db.get_job(job_id)
             if job is None or job.status != "queued":
                 return
-            kind = job.job_kind or classify_youtube_url(job.url)
+            kind = job.job_kind
+            if not kind:
+                kind = classify_url(job.url).kind
             next_status = "expanding" if kind in {"playlist", "channel"} else "downloading"
             job = self.db.update_job(
                 job_id,
@@ -188,12 +184,13 @@ class ArchiveService:
     ) -> tuple[int, int]:
         enqueued = 0
         skipped = 0
+        platform = listing.platform
         for entry in listing.entries:
-            existing = self.db.get_video(PLATFORM_YOUTUBE, entry.video_id)
+            existing = self.db.get_video(platform, entry.video_id)
             if existing is not None:
                 skipped += 1
                 continue
-            paths = item_paths(self.archive_root, PLATFORM_YOUTUBE, entry.video_id)
+            paths = item_paths(self.archive_root, platform, entry.video_id)
             if paths.final_dir.exists() and any(paths.final_dir.glob("media.*")):
                 skipped += 1
                 continue
@@ -201,7 +198,7 @@ class ArchiveService:
                 job_id=str(uuid.uuid4()),
                 url=entry.url,
                 quality_preference=quality_preference,
-                platform=PLATFORM_YOUTUBE,
+                platform=platform,
                 platform_video_id=entry.video_id,
                 job_kind="video",
             )
@@ -212,16 +209,17 @@ class ArchiveService:
 
     def _run_expand_job(self, job: JobRow) -> JobRow:
         listing = self.adapter.list_entries(job.url)
+        platform = listing.platform
         if job.watch_new and listing.kind == "channel" and listing.channel_id:
             self.db.set_channel_watch(
-                platform=PLATFORM_YOUTUBE,
+                platform=platform,
                 channel_id=listing.channel_id,
                 channel=listing.channel,
                 channel_url=listing.channel_url or listing.url,
                 watching=True,
             )
             self.db.touch_channel_watch(
-                platform=PLATFORM_YOUTUBE,
+                platform=platform,
                 channel_id=listing.channel_id,
             )
         enqueued, skipped = self._fanout_listing(
@@ -233,7 +231,7 @@ class ArchiveService:
         return self.db.update_job(
             job.id,
             status="completed",
-            platform=PLATFORM_YOUTUBE,
+            platform=platform,
             platform_video_id=listing.list_id or listing.channel_id,
             job_kind=listing.kind,
             error_code=None,
@@ -241,7 +239,9 @@ class ArchiveService:
         )
 
     def _run_job(self, job: JobRow) -> JobRow:
-        kind = job.job_kind or classify_youtube_url(job.url)
+        kind = job.job_kind
+        if not kind:
+            kind = classify_url(job.url).kind
         if kind in {"playlist", "channel"}:
             try:
                 return self._run_expand_job(job)
@@ -300,7 +300,6 @@ class ArchiveService:
             )
             paths = item_paths(self.archive_root, info.platform, info.video_id)
             if paths.final_dir.exists() and any(paths.final_dir.glob("media.*")):
-                # Files present but DB missing — treat as duplicate of on-disk archive.
                 raise DuplicateArchiveError(
                     f"On-disk archive already exists for {info.video_id}",
                     platform_video_id=info.video_id,
@@ -313,7 +312,6 @@ class ArchiveService:
                 quality_preference=job.quality_preference,
             )
 
-            # Organize thumbnails / subtitles inside partial before promote.
             thumb_dir = paths.partial_dir / "thumbnails"
             sub_dir = paths.partial_dir / "subtitles"
             if download.thumbnail_paths:
@@ -329,17 +327,20 @@ class ArchiveService:
                     if sub.parent != sub_dir:
                         shutil.move(str(sub), target)
 
-            # Drop yt-dlp info json; we write our own sidecar after promote.
             for info_json in paths.partial_dir.glob("*.info.json"):
                 info_json.unlink(missing_ok=True)
 
             promote_partial(paths)
             media_file = download.media_path
-            # After promote, path root changed from .partial to final.
             media_file = paths.final_dir / media_file.name
             if not media_file.exists():
                 raise PermanentDownloadError("media file missing after promote")
 
+            content_kind = infer_content_kind(
+                platform=download.info.platform,
+                url=job.url,
+                raw=download.info.raw,
+            )
             checksum = write_checksums(paths, media_file)
             archived_at = utc_now_iso()
             write_sidecar(
@@ -350,6 +351,7 @@ class ArchiveService:
                     "job_id": job.id,
                     "quality_preference": job.quality_preference,
                     "original_url": job.url,
+                    "content_kind": content_kind,
                     "tool_versions": {
                         "lones_vdl": __version__,
                         "yt-dlp": download.ytdlp_version,
@@ -383,6 +385,7 @@ class ArchiveService:
                 upload_date=browse.upload_date,
                 metadata_incomplete=browse.incomplete,
                 metadata_gaps=browse.gaps,
+                content_kind=content_kind,
             )
             return self.db.update_job(
                 job.id,
@@ -450,7 +453,9 @@ class ArchiveService:
         *,
         limit: int = 50,
         q: str | None = None,
-        channel_ids: list[str] | None = None,
+        channel_keys: list[tuple[str, str]] | None = None,
+        platforms: list[str] | None = None,
+        content_kinds: list[str] | None = None,
         sort: str = "upload_date",
         order: str = "desc",
         incomplete_only: bool = False,
@@ -463,7 +468,9 @@ class ArchiveService:
         return self.db.list_videos(
             limit=limit,
             q=q,
-            channel_ids=channel_ids,
+            channel_keys=channel_keys,
+            platforms=platforms,
+            content_kinds=content_kinds,
             sort=sort_field,
             order=sort_order,
             incomplete_only=incomplete_only,

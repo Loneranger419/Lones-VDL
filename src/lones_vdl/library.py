@@ -40,6 +40,7 @@ def to_video_response(archive_root: Path, video: VideoRow) -> VideoResponse:
         upload_date=video.upload_date,
         metadata_incomplete=video.metadata_incomplete,
         metadata_gaps=list(video.metadata_gaps),
+        content_kind=video.content_kind or "video",
     )
 
 

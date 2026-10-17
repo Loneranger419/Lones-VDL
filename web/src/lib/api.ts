@@ -14,6 +14,7 @@ export type VideoSummary = {
   upload_date: string | null;
   metadata_incomplete: boolean;
   metadata_gaps: string[];
+  content_kind: string;
 };
 
 export type PlaybackInfo = {
@@ -42,6 +43,26 @@ export type Channel = {
   watching: boolean;
   last_checked_at: string | null;
   channel_url: string | null;
+  creator_id: number | null;
+  creator_name: string | null;
+};
+
+export type CreatorChannelRef = {
+  platform: string;
+  channel_id: string;
+  channel: string | null;
+  has_thumbnail: boolean;
+};
+
+export type Creator = {
+  id: number;
+  display_name: string;
+  notes: string | null;
+  created_at: string;
+  channels: CreatorChannelRef[];
+  avatar_platform: string | null;
+  avatar_channel_id: string | null;
+  has_thumbnail: boolean;
 };
 
 export type Job = {
@@ -102,12 +123,19 @@ export type RefreshResult = {
 
 export type ListVideosParams = {
   q?: string;
-  channelIds?: string[];
+  /** `platform:channel_id` keys */
+  channels?: string[];
+  platforms?: string[];
+  contentKinds?: string[];
   sort?: "upload_date" | "title" | "archived_at";
   order?: "asc" | "desc";
   incompleteOnly?: boolean;
   limit?: number;
 };
+
+export function channelKey(platform: string, channelId: string): string {
+  return `${platform}:${channelId}`;
+}
 
 const TOKEN_KEY = "lones_vdl_api_token";
 
@@ -176,12 +204,82 @@ export async function listVideos(params: ListVideosParams = {}): Promise<VideoSu
   if (params.order) qs.set("order", params.order);
   if (params.incompleteOnly) qs.set("incomplete_only", "true");
   if (params.limit != null) qs.set("limit", String(params.limit));
-  for (const id of params.channelIds ?? []) {
-    qs.append("channel_id", id);
+  for (const key of params.channels ?? []) {
+    qs.append("channel", key);
+  }
+  for (const platform of params.platforms ?? []) {
+    qs.append("platform", platform);
+  }
+  for (const kind of params.contentKinds ?? []) {
+    qs.append("content_kind", kind);
   }
   const query = qs.toString();
   const res = await apiFetch(`/api/videos${query ? `?${query}` : ""}`);
   if (!res.ok) throw new Error(await readError(res, "Failed to list videos"));
+  return res.json();
+}
+
+export async function listCreators(): Promise<Creator[]> {
+  const res = await apiFetch("/api/creators");
+  if (!res.ok) throw new Error(await readError(res, "Failed to list creators"));
+  return res.json();
+}
+
+export async function createCreator(displayName: string, notes?: string | null): Promise<Creator> {
+  const res = await apiFetch("/api/creators", {
+    method: "POST",
+    body: JSON.stringify({ display_name: displayName, notes: notes ?? null }),
+  });
+  if (!res.ok) throw new Error(await readError(res, "Failed to create creator"));
+  return res.json();
+}
+
+export async function updateCreator(
+  creatorId: number,
+  body: {
+    display_name?: string;
+    notes?: string | null;
+    avatar_platform?: string | null;
+    avatar_channel_id?: string | null;
+    clear_avatar?: boolean;
+  },
+): Promise<Creator> {
+  const res = await apiFetch(`/api/creators/${creatorId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await readError(res, "Failed to update creator"));
+  return res.json();
+}
+
+export async function deleteCreator(creatorId: number): Promise<void> {
+  const res = await apiFetch(`/api/creators/${creatorId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await readError(res, "Failed to delete creator"));
+}
+
+export async function attachCreatorChannel(
+  creatorId: number,
+  platform: string,
+  channelId: string,
+): Promise<Creator> {
+  const res = await apiFetch(`/api/creators/${creatorId}/channels`, {
+    method: "PUT",
+    body: JSON.stringify({ platform, channel_id: channelId }),
+  });
+  if (!res.ok) throw new Error(await readError(res, "Failed to attach channel"));
+  return res.json();
+}
+
+export async function detachCreatorChannel(
+  creatorId: number,
+  platform: string,
+  channelId: string,
+): Promise<Creator> {
+  const res = await apiFetch(
+    `/api/creators/${creatorId}/channels/${encodeURIComponent(platform)}/${encodeURIComponent(channelId)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) throw new Error(await readError(res, "Failed to detach channel"));
   return res.json();
 }
 
@@ -362,6 +460,11 @@ export function thumbnailUrl(platform: string, id: string): string {
 export function channelThumbnailUrl(platform: string, channelId: string): string {
   const token = encodeURIComponent(getToken());
   return `/api/channels/${encodeURIComponent(platform)}/${encodeURIComponent(channelId)}/thumbnail?token=${token}`;
+}
+
+export function creatorThumbnailUrl(creatorId: number): string {
+  const token = encodeURIComponent(getToken());
+  return `/api/creators/${creatorId}/thumbnail?token=${token}`;
 }
 
 export function isActiveJob(status: string): boolean {
