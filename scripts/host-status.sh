@@ -7,13 +7,23 @@
 set -u
 
 OUT="${1:-./lones-vdl-host-status-$(date +%Y%m%d-%H%M%S).txt}"
-ARCHIVE_MNT="${LONES_VDL_ARCHIVE_MNT:-/mnt/lones-vdl-archive}"
+# Prefer the current mount path; fall back to the older hyphenated path.
+ARCHIVE_MNT="${LONES_VDL_ARCHIVE_MNT:-}"
+if [[ -z "${ARCHIVE_MNT}" ]]; then
+  if [[ -d /mnt/lonesvdl ]]; then
+    ARCHIVE_MNT=/mnt/lonesvdl
+  else
+    ARCHIVE_MNT=/mnt/lones-vdl-archive
+  fi
+fi
 MARKER="${ARCHIVE_MNT}/.lones-vdl-mounted"
+MOUNT_UNIT="lones-vdl-archive.service"
 
 # Best-effort locate deploy dir (override with LONES_VDL_DEPLOY_DIR).
 DEPLOY_DIR="${LONES_VDL_DEPLOY_DIR:-}"
 if [[ -z "${DEPLOY_DIR}" ]]; then
   for candidate in \
+    /opt/Lones-VDL/deploy \
     /root/Lones-VDL/deploy \
     /home/*/Lones-VDL/deploy \
     "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/deploy"
@@ -59,17 +69,19 @@ run() {
 
   section "Enabled / active units"
   run "is-enabled docker" systemctl is-enabled docker
+  run "is-enabled lones-vdl-archive" systemctl is-enabled "${MOUNT_UNIT}"
   run "is-enabled lones-vdl" systemctl is-enabled lones-vdl.service
   run "is-active docker" systemctl is-active docker
+  run "is-active lones-vdl-archive" systemctl is-active "${MOUNT_UNIT}"
   run "is-active lones-vdl" systemctl is-active lones-vdl.service
-  run "is-active archive mount" systemctl is-active "mnt-lones-vdl-archive.mount"
 
   section "Unit status"
   run "docker.service" systemctl status docker --no-pager -l
+  run "lones-vdl-archive.service" systemctl status "${MOUNT_UNIT}" --no-pager -l
   run "lones-vdl.service" systemctl status lones-vdl.service --no-pager -l
-  run "mnt-lones-vdl-archive.mount" systemctl status mnt-lones-vdl-archive.mount --no-pager -l
 
   section "Boot journal (this boot)"
+  run "journalctl lones-vdl-archive" journalctl -u "${MOUNT_UNIT}" -b --no-pager
   run "journalctl lones-vdl" journalctl -u lones-vdl.service -b --no-pager
   run "journalctl docker (tail)" journalctl -u docker.service -b --no-pager -n 80
 

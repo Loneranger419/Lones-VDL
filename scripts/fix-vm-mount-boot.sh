@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # One-shot fix for CIFS mount + lones-vdl boot on the Debian Docker VM.
 # Run as root on docker-1:
+#   cd /opt/Lones-VDL && git pull origin main
 #   bash /opt/Lones-VDL/scripts/fix-vm-mount-boot.sh
 #
 # What it does:
 # - Removes broken hyphenated systemd .mount unit (path/- mismatch)
 # - Comments fstab CIFS line for this share (avoid double management)
 # - Mounts //192.168.0.15/lonesvdl at /mnt/lonesvdl via a oneshot service
-# - Rewires lones-vdl.service to require that mount service
+#   (sleep + Restart=on-failure for "Network is unreachable" at boot)
+# - Rewires lones-vdl.service to Wants the mount (not hard Requires) and
+#   retry via ExecStartPre marker check + Restart=on-failure
 # - Updates deploy/.env archive path
+# - Enables network-online wait helpers when available
 # - Enables units and starts the stack
 
 set -euo pipefail
@@ -58,30 +62,36 @@ echo "==> Writing ${MOUNT_SVC}"
 cat >"${MOUNT_SVC}" <<EOF
 [Unit]
 Description=Mount Lones VDL CIFS archive
-After=network-online.target
+After=network-online.target remote-fs-pre.target
 Wants=network-online.target
 Before=lones-vdl.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# Boot often reaches network-online before the NIC has a route; wait/retry.
+ExecStartPre=/bin/sleep 8
 ExecStart=/bin/mkdir -p ${MNT}
 ExecStart=/bin/mount -t cifs ${SHARE} ${MNT} -o credentials=${CRED},uid=1000,gid=1000,file_mode=0644,dir_mode=0755,iocharset=utf8
 ExecStart=/usr/bin/test -f ${MARKER}
 ExecStop=/bin/umount ${MNT}
-TimeoutStartSec=60
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
 echo "==> Writing ${APP_SVC}"
+# Wants= (not Requires=) the mount so a boot-time mount miss does not
+# permanently kill this unit; ExecStartPre + Restart retries until marker exists.
 cat >"${APP_SVC}" <<EOF
 [Unit]
 Description=Lones VDL Docker Compose
 After=network-online.target docker.service lones-vdl-archive.service
-Wants=network-online.target
-Requires=docker.service lones-vdl-archive.service
+Wants=network-online.target lones-vdl-archive.service
+Requires=docker.service
 
 [Service]
 Type=oneshot
@@ -110,9 +120,24 @@ else
   echo "WARNING: ${DEPLOY}/.env missing — create from .env.example" >&2
 fi
 
-echo "==> Enabling docker"
+echo "==> Enabling docker + network-online wait"
 systemctl enable docker >/dev/null
 systemctl start docker
+# Make network-online.target mean "has an address/route" when possible.
+if command -v apt-get >/dev/null 2>&1; then
+  if ! systemctl list-unit-files ifupdown-wait-online.service 2>/dev/null | grep -q ifupdown-wait-online; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ifupdown >/dev/null 2>&1 || true
+  fi
+fi
+if systemctl list-unit-files systemd-networkd-wait-online.service >/dev/null 2>&1; then
+  systemctl enable systemd-networkd-wait-online.service >/dev/null 2>&1 || true
+fi
+if systemctl list-unit-files NetworkManager-wait-online.service >/dev/null 2>&1; then
+  systemctl enable NetworkManager-wait-online.service >/dev/null 2>&1 || true
+fi
+if systemctl list-unit-files ifupdown-wait-online.service >/dev/null 2>&1; then
+  systemctl enable ifupdown-wait-online.service >/dev/null 2>&1 || true
+fi
 
 echo "==> Mounting share (first time may need marker created)"
 systemctl daemon-reload
@@ -139,4 +164,7 @@ findmnt "${MNT}" || true
 echo
 curl -sS -m 5 http://127.0.0.1:8080/api/health || echo "health check failed"
 echo
-echo "Done. Reboot test: reboot; then: systemctl is-active lones-vdl-archive lones-vdl; curl -s localhost:8080/api/health"
+echo "Done. Reboot test:"
+echo "  reboot"
+echo "  systemctl is-active lones-vdl-archive.service lones-vdl.service"
+echo "  curl -s http://127.0.0.1:8080/api/health"
