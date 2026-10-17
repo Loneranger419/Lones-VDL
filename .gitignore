@@ -4,8 +4,12 @@
 !.env.example
 secrets/*
 !secrets/.gitkeep
-*.cookies.txt
+# Netscape cookie jars and editor/filter backups (any path)
 cookies.txt
+cookies.txt.*
+*.cookies.txt
+*.cookies.txt.*
+*.cookies.bak
 
 # Python
 .venv/
@@ -37,7 +41,14 @@ data/archive/*
 *.db-journal
 *.db-wal
 *.db-shm
+/archive
 /archive/
+
+# yt-dlp / download temps (if ever written outside data/archive)
+*.part
+*.ytdl
+*.temp
+*.tmp
 
 # OS / IDE
 .DS_Store
@@ -49,3 +60,5 @@ Thumbs.db
 
 # Docker
 .docker-cache/
+deploy/.env
+!deploy/.env.example
