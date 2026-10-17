@@ -520,6 +520,7 @@ class ArchiveService:
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         q: str | None = None,
         channel_keys: list[tuple[str, str]] | None = None,
         platforms: list[str] | None = None,
@@ -535,6 +536,7 @@ class ArchiveService:
         sort_order: SortOrder = order if order in ("asc", "desc") else "desc"
         return self.db.list_videos(
             limit=limit,
+            offset=offset,
             q=q,
             channel_keys=channel_keys,
             platforms=platforms,

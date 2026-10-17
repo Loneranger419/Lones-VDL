@@ -237,7 +237,7 @@ def create_app(
         db.close()
 
     app = FastAPI(
-        title="Lones-VDL",
+        title="Lone's VDL",
         version=__version__,
         description="YouTube and Twitch video archival service",
         lifespan=lifespan,
@@ -423,6 +423,7 @@ def create_app(
     )
     def list_videos(
         limit: int = 100,
+        offset: int = 0,
         q: str | None = None,
         channel: Annotated[list[str] | None, Query()] = None,
         platform: Annotated[list[str] | None, Query()] = None,
@@ -433,6 +434,7 @@ def create_app(
     ) -> list[VideoResponse]:
         videos = service.list_videos(
             limit=limit,
+            offset=max(0, offset),
             q=q,
             channel_keys=_parse_channel_keys(channel),
             platforms=platform or None,

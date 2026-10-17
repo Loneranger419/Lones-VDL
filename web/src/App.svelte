@@ -14,6 +14,7 @@
     enqueueJob,
     filterCookies,
     formatUploadDate,
+    getBrowseColumns,
     getConfig,
     getToken,
     getVideo,
@@ -25,6 +26,7 @@
     listRelated,
     listVideos,
     mediaUrl,
+    setBrowseColumns,
     refreshIncompleteMetadata,
     rescanArchive,
     setChannelFavorite,
@@ -47,6 +49,9 @@
   type DownloadTab = "library" | "jobs" | "integrity";
   type SortField = "upload_date" | "title";
 
+  const VIEW_PAGE_SIZE = 32;
+  const DOWNLOAD_LIST_LIMIT = 100;
+
   let tokenInput = $state(getToken());
   let authed = $state(Boolean(getToken()));
   let mode = $state<Mode>("view");
@@ -61,6 +66,10 @@
   let contentKindFilter = $state<string>("");
   let sort = $state<SortField>("upload_date");
   let order = $state<"asc" | "desc">("desc");
+  let browseColumns = $state(getBrowseColumns());
+  let settingsOpen = $state(false);
+  let hasMoreVideos = $state(false);
+  let loadMoreBusy = $state(false);
   let watching = $state<VideoDetail | null>(null);
   let related = $state<VideoSummary[]>([]);
   let upNext = $state<VideoSummary[]>([]);
@@ -127,16 +136,43 @@
     }
   }
 
-  async function refreshVideos() {
-    videos = await listVideos({
+  function videoListParams(offset = 0) {
+    const pageSize = mode === "view" ? VIEW_PAGE_SIZE : DOWNLOAD_LIST_LIMIT;
+    return {
       q: query.trim() || undefined,
       channels: selectedChannels.length ? selectedChannels : undefined,
       platforms: platformFilter ? [platformFilter] : undefined,
       contentKinds: contentKindFilter ? [contentKindFilter] : undefined,
       sort,
       order,
-      limit: 200,
-    });
+      limit: pageSize,
+      offset,
+    };
+  }
+
+  async function refreshVideos() {
+    const page = await listVideos(videoListParams(0));
+    videos = page;
+    hasMoreVideos = mode === "view" && page.length >= VIEW_PAGE_SIZE;
+  }
+
+  async function loadMoreVideos() {
+    if (!hasMoreVideos || loadMoreBusy) return;
+    loadMoreBusy = true;
+    error = "";
+    try {
+      const page = await listVideos(videoListParams(videos.length));
+      videos = [...videos, ...page];
+      hasMoreVideos = page.length >= VIEW_PAGE_SIZE;
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      loadMoreBusy = false;
+    }
+  }
+
+  function updateBrowseColumns(value: string) {
+    browseColumns = setBrowseColumns(Number(value));
   }
 
   async function refreshChannels() {
@@ -210,7 +246,12 @@
     error = "";
     try {
       selected = await getVideo(v.platform, v.platform_video_id);
-      videos = await listVideos({ limit: 200, sort: "archived_at", order: "desc" });
+      videos = await listVideos({
+        limit: DOWNLOAD_LIST_LIMIT,
+        sort: "archived_at",
+        order: "desc",
+      });
+      hasMoreVideos = false;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
       selected = null;
@@ -588,7 +629,7 @@
 
 {#if !authed}
   <main class="gate">
-    <h1>Lones-VDL</h1>
+    <h1>Lone's VDL</h1>
     <p>Enter the API bearer token from your <code>.env</code> (<code>LONES_VDL_API_TOKEN</code>).</p>
     <form
       onsubmit={(e) => {
@@ -602,31 +643,45 @@
     {#if error}<p class="error">{error}</p>{/if}
   </main>
 {:else}
-  <div class="layout" class:view-wide={mode === "view"}>
+  <div
+    class="layout"
+    class:view-mode={mode === "view"}
+    class:view-browse={mode === "view" && !watching}
+  >
     <header>
       <div>
-        <h1>Lones-VDL</h1>
-        <p class="sub">
-          {#if config}
-            Archive: <code>{config.archive_root}</code>
-            · concurrency {config.download_concurrency}
-            · cookies {config.cookies_configured
-              ? `yes (${config.cookie_count ?? "?"} for ${config.cookie_platforms.join(", ")})`
-              : "no"}
-          {:else}
-            Archive library
-          {/if}
-        </p>
+        <h1>Lone's VDL</h1>
+        {#if mode === "download"}
+          <p class="sub">
+            {#if config}
+              Archive: <code>{config.archive_root}</code>
+              · concurrency {config.download_concurrency}
+              · cookies {config.cookies_configured
+                ? `yes (${config.cookie_count ?? "?"} for ${config.cookie_platforms.join(", ")})`
+                : "no"}
+            {:else}
+              Archive library
+            {/if}
+          </p>
+        {/if}
       </div>
       <div class="header-actions">
         <div class="mode-toggle" role="group" aria-label="App mode">
-          <button type="button" class:active={mode === "view"} onclick={() => (mode = "view")}
-            >View</button
+          <button
+            type="button"
+            class:active={mode === "view"}
+            onclick={() => {
+              mode = "view";
+              void refreshVideos().catch((err) => (error = String(err)));
+            }}>View</button
           >
           <button
             type="button"
             class:active={mode === "download"}
-            onclick={() => (mode = "download")}>Download</button
+            onclick={() => {
+              mode = "download";
+              void refreshVideos().catch((err) => (error = String(err)));
+            }}>Download</button
           >
         </div>
         {#if config?.cookies_configured && mode === "download"}
@@ -851,13 +906,36 @@
                 onclick={() => void refreshVideos().catch((err) => (error = String(err)))}
                 >Refresh</button
               >
+              <button
+                type="button"
+                class="ghost"
+                class:active={settingsOpen}
+                onclick={() => (settingsOpen = !settingsOpen)}
+                >Settings</button
+              >
             </div>
+            {#if settingsOpen}
+              <div class="browse-settings">
+                <label>
+                  Columns
+                  <select
+                    value={String(browseColumns)}
+                    onchange={(e) => updateBrowseColumns(e.currentTarget.value)}
+                  >
+                    {#each [2, 3, 4, 5, 6] as n}
+                      <option value={String(n)}>{n}</option>
+                    {/each}
+                  </select>
+                </label>
+                <p class="muted tiny">Saved in a cookie on this browser/device.</p>
+              </div>
+            {/if}
 
             {#if loading}<p class="muted">Loading…</p>{/if}
             {#if videos.length === 0 && !loading}
               <p class="muted">No archived videos match. Switch to Download to enqueue.</p>
             {:else}
-              <div class="grid">
+              <div class="grid" style={`--browse-cols: ${browseColumns}`}>
                 {#each videos as v (v.id)}
                   <button type="button" class="card" onclick={() => void openWatch(v)}>
                     {#if v.has_thumbnail}
@@ -878,6 +956,17 @@
                   </button>
                 {/each}
               </div>
+              {#if hasMoreVideos}
+                <div class="load-more">
+                  <button
+                    type="button"
+                    class="ghost"
+                    disabled={loadMoreBusy}
+                    onclick={() => void loadMoreVideos()}
+                    >{loadMoreBusy ? "Loading…" : "Load more"}</button
+                  >
+                </div>
+              {/if}
             {/if}
           </section>
         </div>
@@ -1444,8 +1533,21 @@
     margin: 0 auto;
     padding: 1.25rem;
   }
-  .layout.view-wide {
-    max-width: 90rem;
+  .layout.view-mode {
+    max-width: none;
+    margin: 0;
+  }
+  .layout.view-browse {
+    padding: 0;
+    min-height: 100vh;
+  }
+  .layout.view-browse > header,
+  .layout.view-browse > .error {
+    padding: 1.25rem 1.25rem 0;
+    margin-bottom: 0.75rem;
+  }
+  .layout.view-mode:not(.view-browse) {
+    padding: 1.25rem;
   }
   header {
     display: flex;
@@ -1676,21 +1778,40 @@
   }
   .view-home {
     display: grid;
-    grid-template-columns: minmax(14rem, 18rem) 1fr;
-    gap: 1rem;
+    grid-template-columns: minmax(15rem, 17.5rem) 1fr;
+    gap: 0;
+    align-items: start;
+    min-height: calc(100vh - 5rem);
   }
   @media (max-width: 900px) {
     .view-home {
       grid-template-columns: 1fr;
+      min-height: 0;
+    }
+    .channels {
+      position: static;
+      height: auto;
+      max-height: 40vh;
+      border-right: 0;
+      border-bottom: 1px solid #2a3542;
     }
   }
   .channels {
-    border: 1px solid #2a3542;
-    border-radius: 8px;
-    background: #121820;
-    padding: 0.75rem;
-    max-height: 75vh;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    max-height: 100vh;
     overflow: auto;
+    border: 0;
+    border-right: 1px solid #2a3542;
+    border-radius: 0;
+    background: #121820;
+    padding: 0.85rem 0.75rem 1.25rem;
+  }
+  .browse {
+    padding: 0 1.25rem 1.5rem;
+    min-width: 0;
   }
   .channels-head {
     display: flex;
@@ -1764,10 +1885,52 @@
   .tiny {
     font-size: 0.8rem;
   }
+  .browse-toolbar .ghost.active {
+    border-color: #3d8bfd;
+    color: #e7ecf1;
+  }
+  .browse-settings {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1.25rem;
+    margin: -0.35rem 0 1rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #2a3542;
+    border-radius: 8px;
+    background: #121820;
+  }
+  .browse-settings label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #c5d0db;
+    font-size: 0.9rem;
+  }
+  .browse-settings select {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 4.5rem;
+  }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    grid-template-columns: repeat(var(--browse-cols, 4), minmax(0, 1fr));
     gap: 0.85rem;
+  }
+  @media (max-width: 900px) {
+    .grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 600px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .load-more {
+    display: flex;
+    justify-content: center;
+    margin: 1.25rem 0 0.5rem;
   }
   .card {
     display: flex;

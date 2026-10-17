@@ -137,10 +137,43 @@ export type ListVideosParams = {
   order?: "asc" | "desc";
   incompleteOnly?: boolean;
   limit?: number;
+  offset?: number;
 };
 
 export function channelKey(platform: string, channelId: string): string {
   return `${platform}:${channelId}`;
+}
+
+const BROWSE_COLUMNS_COOKIE = "lones_vdl_browse_columns";
+const BROWSE_COLUMNS_DEFAULT = 4;
+const BROWSE_COLUMNS_MIN = 2;
+const BROWSE_COLUMNS_MAX = 6;
+const BROWSE_COLUMNS_MAX_AGE = 60 * 60 * 24 * 365;
+
+export function clampBrowseColumns(value: number): number {
+  if (!Number.isFinite(value)) return BROWSE_COLUMNS_DEFAULT;
+  return Math.min(BROWSE_COLUMNS_MAX, Math.max(BROWSE_COLUMNS_MIN, Math.round(value)));
+}
+
+export function getBrowseColumns(): number {
+  if (typeof document === "undefined") return BROWSE_COLUMNS_DEFAULT;
+  const match = document.cookie.match(
+    new RegExp(`(?:^|;\\s*)${BROWSE_COLUMNS_COOKIE}=([^;]*)`),
+  );
+  if (!match) return BROWSE_COLUMNS_DEFAULT;
+  return clampBrowseColumns(Number.parseInt(decodeURIComponent(match[1]), 10));
+}
+
+export function setBrowseColumns(columns: number): number {
+  const clamped = clampBrowseColumns(columns);
+  if (typeof document === "undefined") return clamped;
+  document.cookie = [
+    `${BROWSE_COLUMNS_COOKIE}=${encodeURIComponent(String(clamped))}`,
+    "Path=/",
+    `Max-Age=${BROWSE_COLUMNS_MAX_AGE}`,
+    "SameSite=Lax",
+  ].join("; ");
+  return clamped;
 }
 
 const TOKEN_KEY = "lones_vdl_api_token";
@@ -210,6 +243,7 @@ export async function listVideos(params: ListVideosParams = {}): Promise<VideoSu
   if (params.order) qs.set("order", params.order);
   if (params.incompleteOnly) qs.set("incomplete_only", "true");
   if (params.limit != null) qs.set("limit", String(params.limit));
+  if (params.offset != null) qs.set("offset", String(params.offset));
   for (const key of params.channels ?? []) {
     qs.append("channel", key);
   }

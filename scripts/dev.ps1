@@ -1,15 +1,20 @@
-# Quick local run: verify deps, start API here, open Vite in a second terminal.
+# Quick local run: verify deps, open API + Vite (prefers one Windows Terminal window).
 # Usage:
 #   powershell -File scripts\dev.ps1
 #   powershell -File scripts\dev.ps1 -Install   # create venv / pip / npm if missing
 #   powershell -File scripts\dev.ps1 -ApiOnly
 #   powershell -File scripts\dev.ps1 -WebOnly
+#   powershell -File scripts\dev.ps1 -NoTerminal  # force separate consoles (skip wt.exe)
+#
+# With Windows Terminal: one window, split panes (API | Vite). In the API pane,
+# Ctrl+C then Enter restarts the server without opening a new window.
 
 [CmdletBinding()]
 param(
     [switch]$Install,
     [switch]$ApiOnly,
-    [switch]$WebOnly
+    [switch]$WebOnly,
+    [switch]$NoTerminal
 )
 
 $ErrorActionPreference = "Stop"
@@ -129,11 +134,23 @@ function Test-ExternalTools {
     }
 }
 
-function Start-WebTerminal {
+function Get-WindowsTerminal {
+    $cmd = Get-Command "wt.exe" -ErrorAction SilentlyContinue
+    if ($null -ne $cmd) {
+        return $cmd.Source
+    }
+    $candidate = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\wt.exe"
+    if (Test-Path -LiteralPath $candidate) {
+        return $candidate
+    }
+    return $null
+}
+
+function Start-WebFallbackTerminal {
     $webDir = Join-Path $Root "web"
-    Write-Step "Opening Vite UI in a new terminal (http://127.0.0.1:5173)"
+    Write-Step "Opening Vite UI in a new console (http://127.0.0.1:5173)"
     # Keep this as one line so nested quoting stays simple for Start-Process.
-    $command = "Set-Location -LiteralPath '$webDir'; Write-Host 'Lones-VDL web UI (Vite). Proxies /api to http://127.0.0.1:8080' -ForegroundColor Cyan; Write-Host 'Open http://127.0.0.1:5173 and enter LONES_VDL_API_TOKEN from .env' -ForegroundColor Cyan; npm run dev"
+    $command = "Set-Location -LiteralPath '$webDir'; Write-Host 'Lone''s VDL web UI (Vite). Proxies /api to http://127.0.0.1:8080' -ForegroundColor Cyan; Write-Host 'Open http://127.0.0.1:5173 and enter LONES_VDL_API_TOKEN from .env' -ForegroundColor Cyan; npm run dev"
     Start-Process -FilePath "powershell.exe" -WorkingDirectory $webDir -ArgumentList @(
         "-NoExit",
         "-NoProfile",
@@ -142,11 +159,55 @@ function Start-WebTerminal {
     ) | Out-Null
 }
 
+function Start-DevWindowsTerminal {
+    # One window, vertical split: API (left) | Vite (right). Fixed size/pos so relaunches land predictably.
+    $wt = Get-WindowsTerminal
+    if ($null -eq $wt) {
+        return $false
+    }
+    $devPs1 = Join-Path $PSScriptRoot "dev.ps1"
+    $webDir = Join-Path $Root "web"
+    Write-Step "Opening Windows Terminal (API | Vite split)"
+    Write-Host "    Restart API: Ctrl+C in the API pane, then press Enter"
+    Write-Host "    UI: http://127.0.0.1:5173  ·  API: http://127.0.0.1:8080"
+    # Start-Process joins ArgumentList arrays with spaces and breaks paths like
+    # "My Documents". Pass one quoted command line instead.
+    $argLine = @(
+        "--pos", "80,60",
+        "--size", "160,48",
+        "-w", "new",
+        "nt", "--title", "API",
+        "-d", "`"$Root`"",
+        "powershell", "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", "`"$devPs1`"", "-ApiOnly",
+        ";",
+        "sp", "-V", "--title", "Vite",
+        "-d", "`"$webDir`"",
+        "powershell", "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", "`"$devPs1`"", "-WebOnly"
+    ) -join " "
+    Start-Process -FilePath $wt -WorkingDirectory $Root -ArgumentList $argLine | Out-Null
+    return $true
+}
+
 function Start-Api([string]$PythonExe) {
-    Write-Step "Starting API (http://127.0.0.1:8080) - Ctrl+C stops this process"
+    Write-Step "API on http://127.0.0.1:8080"
     Write-Host "    Health: http://127.0.0.1:8080/api/health"
-    Write-Host "    UI:     http://127.0.0.1:5173 (other terminal)"
-    & $PythonExe -m lones_vdl serve
+    Write-Host "    UI:     http://127.0.0.1:5173"
+    Write-Host "    Restart: Ctrl+C, then Enter (same pane/window)" -ForegroundColor DarkGray
+    while ($true) {
+        & $PythonExe -m lones_vdl serve
+        $code = $LASTEXITCODE
+        Write-Host ""
+        Write-Host "API stopped (exit $code). Press Enter to restart, or Ctrl+C to quit." -ForegroundColor Yellow
+        try {
+            [void](Read-Host)
+        }
+        catch {
+            # Non-interactive / Ctrl+C during Read-Host
+            break
+        }
+    }
 }
 
 # --- main ---
@@ -168,14 +229,21 @@ Write-Step "External tools (optional for downloads/playback)"
 Test-ExternalTools
 
 if ($WebOnly) {
-    Write-Step "Starting Vite in this terminal"
+    Write-Step "Starting Vite in this terminal (http://127.0.0.1:5173)"
     Set-Location (Join-Path $Root "web")
     npm run dev
     exit $LASTEXITCODE
 }
 
+if (-not $ApiOnly -and -not $NoTerminal) {
+    if (Start-DevWindowsTerminal) {
+        exit 0
+    }
+    Write-WarnStep "Windows Terminal (wt.exe) not found; using separate consoles."
+}
+
 if (-not $ApiOnly) {
-    Start-WebTerminal
+    Start-WebFallbackTerminal
     Start-Sleep -Seconds 1
 }
 

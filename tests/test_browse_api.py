@@ -83,6 +83,25 @@ def test_list_sort_channels_favorites_related(tmp_env: Settings) -> None:
             assert video["upload_date"] == "20091025"
             assert video["metadata_incomplete"] is False
 
+        page1 = client.get(
+            "/api/videos?sort=title&order=asc&limit=1&offset=0",
+            headers=headers,
+        )
+        assert page1.status_code == 200
+        assert [v["title"] for v in page1.json()] == ["Alpha Video"]
+        page2 = client.get(
+            "/api/videos?sort=title&order=asc&limit=1&offset=1",
+            headers=headers,
+        )
+        assert page2.status_code == 200
+        assert [v["title"] for v in page2.json()] == ["Beta Video"]
+        past_end = client.get(
+            "/api/videos?sort=title&order=asc&limit=1&offset=2",
+            headers=headers,
+        )
+        assert past_end.status_code == 200
+        assert past_end.json() == []
+
         channels = client.get("/api/channels", headers=headers)
         assert channels.status_code == 200
         body = channels.json()

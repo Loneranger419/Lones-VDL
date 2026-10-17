@@ -17,7 +17,7 @@ See [docs/architecture.md](docs/architecture.md) and [AGENTS.md](AGENTS.md).
 
 ## Quick start (Windows)
 
-One-shot local UI + API (verifies `.venv` / deps, starts API here, opens Vite in a second terminal):
+One-shot local UI + API (verifies `.venv` / deps). Prefers **Windows Terminal** with API | Vite split panes in one window; API pane restarts with Ctrl+C then Enter (no new window). Falls back to separate consoles if `wt.exe` is missing.
 
 ```powershell
 # First time (creates .venv, pip install -e ".[dev]", npm install, copies .env):
@@ -28,7 +28,7 @@ powershell -File scripts\dev.ps1
 # or: scripts\dev.cmd
 ```
 
-Flags: `-ApiOnly`, `-WebOnly`. API: `http://127.0.0.1:8080` · UI: `http://127.0.0.1:5173` (enter `LONES_VDL_API_TOKEN` from `.env`).
+Flags: `-ApiOnly`, `-WebOnly`, `-NoTerminal` (skip Windows Terminal). API: `http://127.0.0.1:8080` · UI: `http://127.0.0.1:5173` (enter `LONES_VDL_API_TOKEN` from `.env`).
 
 Manual equivalent:
 

@@ -441,6 +441,7 @@ class Database:
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         q: str | None = None,
         channel_keys: list[tuple[str, str]] | None = None,
         platforms: list[str] | None = None,
@@ -489,8 +490,9 @@ class Database:
                     "'00000000')"
                 )
                 order_sql = f"{date_key} {order.upper()}, archived_at {order.upper()}"
-            query = f"SELECT * FROM videos{where} ORDER BY {order_sql} LIMIT ?"
-            params.append(limit)
+            safe_offset = max(0, offset)
+            query = f"SELECT * FROM videos{where} ORDER BY {order_sql} LIMIT ? OFFSET ?"
+            params.extend([limit, safe_offset])
             rows = self._conn.execute(query, params).fetchall()
             return [_video_from_row(r) for r in rows]
 
