@@ -87,6 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_creator_channels_creator ON creator_channels(crea
 _JOB_COLUMNS = {
     "watch_new": "INTEGER NOT NULL DEFAULT 0",
     "job_kind": "TEXT",
+    "parent_job_id": "TEXT",
 }
 
 # Created after column migration so existing DBs (pre-browse fields) can start.
@@ -96,6 +97,7 @@ CREATE INDEX IF NOT EXISTS idx_videos_upload_date ON videos(upload_date);
 CREATE INDEX IF NOT EXISTS idx_videos_title ON videos(title);
 CREATE INDEX IF NOT EXISTS idx_videos_content_kind ON videos(content_kind);
 CREATE INDEX IF NOT EXISTS idx_videos_platform ON videos(platform);
+CREATE INDEX IF NOT EXISTS idx_jobs_parent ON jobs(parent_job_id);
 """
 
 _VIDEO_COLUMNS = {
@@ -131,6 +133,9 @@ class VideoRow:
     content_kind: str = "video"
 
 
+ACTIVE_JOB_STATUSES = frozenset({"queued", "downloading", "expanding"})
+
+
 @dataclass(frozen=True)
 class JobRow:
     id: str
@@ -147,6 +152,7 @@ class JobRow:
     updated_at: str
     watch_new: bool = False
     job_kind: str | None = None
+    parent_job_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -340,6 +346,7 @@ class Database:
         platform_video_id: str | None = None,
         watch_new: bool = False,
         job_kind: str | None = None,
+        parent_job_id: str | None = None,
     ) -> JobRow:
         now = utc_now_iso()
         with self._lock:
@@ -347,8 +354,8 @@ class Database:
                 """
                 INSERT INTO jobs (
                     id, url, platform, platform_video_id, quality_preference,
-                    status, created_at, updated_at, watch_new, job_kind
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, created_at, updated_at, watch_new, job_kind, parent_job_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     job_id,
@@ -361,12 +368,61 @@ class Database:
                     now,
                     1 if watch_new else 0,
                     job_kind,
+                    parent_job_id,
                 ),
             )
             self._conn.commit()
             row = self._conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
             assert row is not None
             return _job_from_row(row)
+
+    def list_child_jobs(self, parent_job_id: str) -> list[JobRow]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM jobs
+                WHERE parent_job_id = ?
+                ORDER BY created_at ASC
+                """,
+                (parent_job_id,),
+            ).fetchall()
+            return [_job_from_row(r) for r in rows]
+
+    def cancel_jobs(
+        self, job_ids: list[str], *, reason: str = "Cancelled by operator"
+    ) -> list[str]:
+        """Mark active jobs cancelled. Returns ids that were actually cancelled."""
+        if not job_ids:
+            return []
+        cancelled: list[str] = []
+        now = utc_now_iso()
+        with self._lock:
+            for job_id in job_ids:
+                row = self._conn.execute(
+                    "SELECT status FROM jobs WHERE id = ?", (job_id,)
+                ).fetchone()
+                if row is None:
+                    continue
+                if row["status"] not in ACTIVE_JOB_STATUSES:
+                    continue
+                self._conn.execute(
+                    """
+                    UPDATE jobs
+                    SET status = 'cancelled', error_code = 'cancelled',
+                        error_message = ?, updated_at = ?
+                    WHERE id = ? AND status IN ('queued', 'downloading', 'expanding')
+                    """,
+                    (reason, now, job_id),
+                )
+                if (
+                    self._conn.execute(
+                        "SELECT status FROM jobs WHERE id = ?", (job_id,)
+                    ).fetchone()["status"]
+                    == "cancelled"
+                ):
+                    cancelled.append(job_id)
+            self._conn.commit()
+        return cancelled
 
     def get_job(self, job_id: str) -> JobRow | None:
         with self._lock:
@@ -986,6 +1042,7 @@ def _job_from_row(row: sqlite3.Row) -> JobRow:
         updated_at=row["updated_at"],
         watch_new=bool(row["watch_new"]) if "watch_new" in keys else False,
         job_kind=row["job_kind"] if "job_kind" in keys else None,
+        parent_job_id=row["parent_job_id"] if "parent_job_id" in keys else None,
     )
 
 

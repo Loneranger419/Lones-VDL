@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     attachCreatorChannel,
+    cancelJob,
     channelKey,
     channelThumbnailUrl,
     checkWatchedChannels,
@@ -17,6 +18,7 @@
     getToken,
     getVideo,
     isActiveJob,
+    isExpandJob,
     listChannels,
     listCreators,
     listJobs,
@@ -242,6 +244,7 @@
       const kind = job.job_kind ? ` [${job.job_kind}]` : "";
       enqueueMsg = `Queued ${job.id.slice(0, 8)}… (${job.status})${kind}`;
       enqueueUrl = "";
+      watchNewOnEnqueue = false;
       downloadTab = "jobs";
       await refreshJobs();
       await refreshChannels();
@@ -249,6 +252,19 @@
       error = err instanceof Error ? err.message : String(err);
     } finally {
       enqueueBusy = false;
+    }
+  }
+
+  async function cancelOneJob(job: Job, batch: boolean) {
+    const label = batch ? "Cancel this expand job and all its child downloads?" : "Cancel this job?";
+    if (!confirm(label)) return;
+    error = "";
+    try {
+      const result = await cancelJob(job.id, batch || isExpandJob(job));
+      enqueueMsg = `Cancelled ${result.count} job(s).`;
+      await refreshJobs();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
     }
   }
 
@@ -891,9 +907,14 @@
             {enqueueBusy ? "Queueing…" : "Enqueue"}
           </button>
         </form>
-        <label class="watch-toggle">
-          <input type="checkbox" bind:checked={watchNewOnEnqueue} />
-          Watch for new uploads / VODs (channel URLs only; Twitch clips stay manual)
+        <label class="switch-row">
+          <span class="switch" class:on={watchNewOnEnqueue}>
+            <input type="checkbox" bind:checked={watchNewOnEnqueue} />
+            <span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span>
+          </span>
+          <span class="switch-label"
+            >Watch for new uploads / VODs (channel URLs only; turns off after enqueue)</span
+          >
         </label>
         {#if enqueueMsg}<p class="ok">{enqueueMsg}</p>{/if}
       </section>
@@ -1068,13 +1089,18 @@
                   <span class="muted tiny">{ch.creator_name}</span>
                 {/if}
                 <span class="muted count">{ch.video_count}</span>
-                <label class="watch-toggle compact" title="Watch for new uploads/VODs">
-                  <input
-                    type="checkbox"
-                    checked={ch.watching}
-                    onchange={() => void toggleWatch(ch)}
-                  />
-                  Watch
+                <label class="switch-row compact" title="Watch for new uploads/VODs">
+                  <span class="switch" class:on={ch.watching}>
+                    <input
+                      type="checkbox"
+                      checked={ch.watching}
+                      onchange={() => void toggleWatch(ch)}
+                    />
+                    <span class="switch-track" aria-hidden="true"
+                      ><span class="switch-knob"></span></span
+                    >
+                  </span>
+                  <span class="switch-label">Watch</span>
                 </label>
                 {#if ch.last_checked_at}
                   <small class="muted">checked {ch.last_checked_at}</small>
@@ -1188,6 +1214,7 @@
                   <th>Attempts</th>
                   <th>Updated</th>
                   <th>Error</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -1217,13 +1244,33 @@
                     <td>{job.attempts}</td>
                     <td class="muted">{job.updated_at}</td>
                     <td class="error-cell">
-                      {#if job.error_message}
+                      {#if job.error_message && job.status !== "cancelled"}
                         <details>
                           <summary class="warn"
                             >{job.error_code}: {job.error_message.split("\n")[0]}</summary
                           >
                           <pre class="error-full">{job.error_message}</pre>
                         </details>
+                      {:else if job.status === "cancelled"}
+                        <span class="muted tiny">cancelled</span>
+                      {/if}
+                    </td>
+                    <td>
+                      {#if isActiveJob(job.status)}
+                        <button
+                          type="button"
+                          class="ghost danger-lite"
+                          onclick={() => void cancelOneJob(job, isExpandJob(job))}
+                          >{isExpandJob(job) ? "Cancel batch" : "Cancel"}</button
+                        >
+                      {:else if isExpandJob(job) && jobs.some(
+                          (j) => j.parent_job_id === job.id && isActiveJob(j.status),
+                        )}
+                        <button
+                          type="button"
+                          class="ghost danger-lite"
+                          onclick={() => void cancelOneJob(job, true)}>Cancel children</button
+                        >
                       {/if}
                     </td>
                   </tr>
@@ -1471,19 +1518,68 @@
       grid-template-columns: 1fr;
     }
   }
-  .watch-toggle {
-    display: flex;
+  .switch-row {
+    display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
-    margin-top: 0.65rem;
+    gap: 0.65rem;
+    margin-top: 0.75rem;
     color: #c5d0db;
     font-size: 0.9rem;
     cursor: pointer;
+    width: fit-content;
+    max-width: 100%;
   }
-  .watch-toggle.compact {
+  .switch-row.compact {
     margin: 0;
     font-size: 0.85rem;
     flex-shrink: 0;
+  }
+  .switch-label {
+    line-height: 1.3;
+  }
+  .switch {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .switch-track {
+    width: 2.4rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: #3a4654;
+    border: 1px solid #556273;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 0.15rem;
+    transition: background 0.15s ease;
+  }
+  .switch-knob {
+    width: 0.9rem;
+    height: 0.9rem;
+    border-radius: 50%;
+    background: #e8eef5;
+    transform: translateX(0);
+    transition: transform 0.15s ease;
+  }
+  .switch.on .switch-track {
+    background: #2f6fed;
+    border-color: #2f6fed;
+  }
+  .switch.on .switch-knob {
+    transform: translateX(1.05rem);
+  }
+  .danger-lite {
+    color: #f0b4b4;
+    border-color: #6a3a3a;
+  }
+  .status-cancelled {
+    color: #c9a27a;
   }
   .download-channels {
     margin-bottom: 1rem;

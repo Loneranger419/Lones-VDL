@@ -35,6 +35,12 @@ class JobResponse(BaseModel):
     updated_at: str
     watch_new: bool = False
     job_kind: str | None = None
+    parent_job_id: str | None = None
+
+
+class CancelJobsResponse(BaseModel):
+    cancelled: list[JobResponse]
+    count: int
 
 
 class VideoResponse(BaseModel):

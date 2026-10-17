@@ -10,7 +10,7 @@ from typing import Any
 
 from lones_vdl import __version__
 from lones_vdl.channel_avatars import channel_url_from_source, ensure_channel_avatar
-from lones_vdl.db import Database, JobRow, VideoRow, utc_now_iso
+from lones_vdl.db import ACTIVE_JOB_STATUSES, Database, JobRow, VideoRow, utc_now_iso
 from lones_vdl.errors import (
     ConflictError,
     DuplicateArchiveError,
@@ -99,6 +99,42 @@ class ArchiveService:
             return None
         return self._run_job(job)
 
+    def cancel_job(self, job_id: str, *, batch: bool = False) -> list[JobRow]:
+        """Cancel an active job; with batch=True also cancel expand children."""
+        job = self.db.get_job(job_id)
+        if job is None:
+            raise PermanentDownloadError(f"Job {job_id} not found", code="not_found")
+
+        targets = [job_id]
+        expand_kinds = {"playlist", "channel"}
+        want_batch = batch or (job.job_kind in expand_kinds)
+        if want_batch:
+            targets.extend(child.id for child in self.db.list_child_jobs(job_id))
+        # If this is a child, optional batch cancels siblings via parent.
+        if batch and job.parent_job_id:
+            parent_id = job.parent_job_id
+            targets.append(parent_id)
+            targets.extend(child.id for child in self.db.list_child_jobs(parent_id))
+
+        # Dedupe preserving order
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for jid in targets:
+            if jid not in seen:
+                seen.add(jid)
+                ordered.append(jid)
+
+        cancelled_ids = self.db.cancel_jobs(ordered)
+        if not cancelled_ids:
+            if job.status not in ACTIVE_JOB_STATUSES:
+                raise ConflictError(f"Job {job_id} is already {job.status}")
+            raise ConflictError(f"No active jobs cancelled for {job_id}")
+        return [j for jid in cancelled_ids if (j := self.db.get_job(jid)) is not None]
+
+    def _is_cancelled(self, job_id: str) -> bool:
+        row = self.db.get_job(job_id)
+        return row is not None and row.status == "cancelled"
+
     def check_watched_channels(self) -> list[dict[str, Any]]:
         """Re-list enabled watches and enqueue any new uploads/VODs."""
         reports: list[dict[str, Any]] = []
@@ -126,6 +162,7 @@ class ArchiveService:
                     listing,
                     quality_preference="best",
                     auto_start=True,
+                    parent_job_id=None,
                 )
                 self.db.touch_channel_watch(
                     platform=watch.platform,
@@ -173,7 +210,8 @@ class ArchiveService:
             )
         result = self._run_job(job)
         if result.status == "queued" and result.attempts < self.max_attempts and not self._closed:
-            self._executor.submit(self._process_job, job_id)
+            if not self._is_cancelled(job_id):
+                self._executor.submit(self._process_job, job_id)
 
     def _fanout_listing(
         self,
@@ -181,11 +219,14 @@ class ArchiveService:
         *,
         quality_preference: str,
         auto_start: bool,
+        parent_job_id: str | None = None,
     ) -> tuple[int, int]:
         enqueued = 0
         skipped = 0
         platform = listing.platform
         for entry in listing.entries:
+            if parent_job_id and self._is_cancelled(parent_job_id):
+                break
             existing = self.db.get_video(platform, entry.video_id)
             if existing is not None:
                 skipped += 1
@@ -201,6 +242,7 @@ class ArchiveService:
                 platform=platform,
                 platform_video_id=entry.video_id,
                 job_kind="video",
+                parent_job_id=parent_job_id,
             )
             enqueued += 1
             if auto_start and not self._closed:
@@ -208,7 +250,15 @@ class ArchiveService:
         return enqueued, skipped
 
     def _run_expand_job(self, job: JobRow) -> JobRow:
+        if self._is_cancelled(job.id):
+            result = self.db.get_job(job.id)
+            assert result is not None
+            return result
         listing = self.adapter.list_entries(job.url)
+        if self._is_cancelled(job.id):
+            result = self.db.get_job(job.id)
+            assert result is not None
+            return result
         platform = listing.platform
         if job.watch_new and listing.kind == "channel" and listing.channel_id:
             self.db.set_channel_watch(
@@ -226,7 +276,12 @@ class ArchiveService:
             listing,
             quality_preference=job.quality_preference,
             auto_start=True,
+            parent_job_id=job.id,
         )
+        if self._is_cancelled(job.id):
+            result = self.db.get_job(job.id)
+            assert result is not None
+            return result
         summary = f"Expanded {listing.kind}: enqueued {enqueued}, skipped {skipped}"
         return self.db.update_job(
             job.id,
@@ -239,6 +294,10 @@ class ArchiveService:
         )
 
     def _run_job(self, job: JobRow) -> JobRow:
+        if self._is_cancelled(job.id):
+            result = self.db.get_job(job.id)
+            assert result is not None
+            return result
         kind = job.job_kind
         if not kind:
             kind = classify_url(job.url).kind
@@ -278,6 +337,10 @@ class ArchiveService:
         paths = None
         try:
             info = self.adapter.extract_info(job.url)
+            if self._is_cancelled(job.id):
+                result = self.db.get_job(job.id)
+                assert result is not None
+                return result
             existing = self.db.get_video(info.platform, info.video_id)
             if existing is not None:
                 self.db.update_job(
@@ -311,6 +374,11 @@ class ArchiveService:
                 output_dir=paths.partial_dir,
                 quality_preference=job.quality_preference,
             )
+            if self._is_cancelled(job.id):
+                discard_partial(paths)
+                result = self.db.get_job(job.id)
+                assert result is not None
+                return result
 
             thumb_dir = paths.partial_dir / "thumbnails"
             sub_dir = paths.partial_dir / "subtitles"

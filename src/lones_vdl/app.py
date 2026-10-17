@@ -31,6 +31,7 @@ from lones_vdl.media import FfmpegMediaProcessor, MediaError, MediaProcessor, fi
 from lones_vdl.metadata_refresh import refresh_incomplete_metadata, refresh_video_metadata
 from lones_vdl.platform.ytdlp import YtdlpAdapter, YtdlpCliAdapter
 from lones_vdl.schemas import (
+    CancelJobsResponse,
     ChannelResponse,
     CookieFilterResponse,
     CreatorAttachRequest,
@@ -80,6 +81,7 @@ def _job_response(job: JobRow) -> JobResponse:
         updated_at=job.updated_at,
         watch_new=job.watch_new,
         job_kind=job.job_kind,
+        parent_job_id=job.parent_job_id,
     )
 
 
@@ -394,6 +396,25 @@ def create_app(
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
         return _job_response(job)
+
+    @app.post(
+        "/api/jobs/{job_id}/cancel",
+        response_model=CancelJobsResponse,
+        dependencies=[Depends(require_token)],
+    )
+    def cancel_job(job_id: str, batch: bool = False) -> CancelJobsResponse:
+        try:
+            cancelled = service.cancel_job(job_id, batch=batch)
+        except ConflictError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except LonesVdlError as exc:
+            if exc.code == "not_found":
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return CancelJobsResponse(
+            cancelled=[_job_response(j) for j in cancelled],
+            count=len(cancelled),
+        )
 
     @app.get(
         "/api/videos",

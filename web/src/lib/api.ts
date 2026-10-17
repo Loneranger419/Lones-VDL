@@ -80,6 +80,12 @@ export type Job = {
   attempts: number;
   watch_new?: boolean;
   job_kind?: string | null;
+  parent_job_id?: string | null;
+};
+
+export type CancelJobsResult = {
+  cancelled: Job[];
+  count: number;
 };
 
 export type WatchCheckItem = {
@@ -405,6 +411,15 @@ export async function enqueueJob(
   return res.json();
 }
 
+export async function cancelJob(jobId: string, batch = false): Promise<CancelJobsResult> {
+  const qs = batch ? "?batch=true" : "";
+  const res = await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel${qs}`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await readError(res, "Failed to cancel job"));
+  return res.json();
+}
+
 export type VerifyItem = {
   platform: string;
   platform_video_id: string;
@@ -469,6 +484,10 @@ export function creatorThumbnailUrl(creatorId: number): string {
 
 export function isActiveJob(status: string): boolean {
   return status === "queued" || status === "downloading" || status === "expanding";
+}
+
+export function isExpandJob(job: Job): boolean {
+  return job.job_kind === "playlist" || job.job_kind === "channel";
 }
 
 export function formatUploadDate(value: string | null | undefined): string {
