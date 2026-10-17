@@ -630,7 +630,10 @@
 
 {#if !authed}
   <main class="gate">
-    <h1>Lone's VDL</h1>
+    <div class="brand">
+      <img class="brand-mark" src="/icon.png" alt="" width="84" height="84" />
+      <h1>Lone's VDL</h1>
+    </div>
     <p>Enter the API bearer token from your <code>.env</code> (<code>LONES_VDL_API_TOKEN</code>).</p>
     <form
       onsubmit={(e) => {
@@ -650,8 +653,11 @@
     class:view-browse={mode === "view" && !watching}
   >
     <header>
-      <div>
-        <h1>Lone's VDL</h1>
+      <div class="brand-block">
+        <div class="brand">
+          <img class="brand-mark" src="/icon.png" alt="" width="60" height="60" />
+          <h1>Lone's VDL</h1>
+        </div>
         {#if mode === "download"}
           <p class="sub">
             {#if config}
@@ -1540,6 +1546,30 @@
     gap: 0.5rem;
     margin-top: 1rem;
   }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+  }
+  .brand-block .sub {
+    margin-left: calc(3.75rem + 0.7rem);
+  }
+  .brand-mark {
+    width: 3.75rem;
+    height: 3.75rem;
+    border-radius: 0.55rem;
+    object-fit: cover;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 1px rgba(196, 30, 30, 0.35);
+  }
+  .gate .brand-mark {
+    width: 5.25rem;
+    height: 5.25rem;
+    border-radius: 0.7rem;
+  }
+  .gate .brand {
+    margin-bottom: 0.75rem;
+  }
   .layout {
     max-width: 72rem;
     margin: 0 auto;
@@ -1567,6 +1597,9 @@
     align-items: flex-start;
     margin-bottom: 1rem;
     gap: 1rem;
+  }
+  header .brand h1 {
+    line-height: 1.1;
   }
   .header-actions {
     display: flex;
