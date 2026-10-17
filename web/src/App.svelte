@@ -44,6 +44,7 @@
     type VideoDetail,
     type VideoSummary,
   } from "./lib/api";
+  import PlatformIcon from "./lib/PlatformIcon.svelte";
 
   type Mode = "view" | "download";
   type DownloadTab = "library" | "jobs" | "integrity";
@@ -716,15 +717,19 @@
             >
           </div>
           <h2>{watching.title ?? watching.platform_video_id}</h2>
-          <p class="meta">
-            {watching.channel ?? "Unknown channel"}
-            · {watching.platform}
-            · {kindLabel(watching.content_kind)}
-            · {formatUploadDate(watching.upload_date)}
-            · archived {watching.archived_at}
-            {#if watching.metadata_incomplete}
-              · <span class="warn">incomplete metadata ({watching.metadata_gaps.join(", ")})</span>
-            {/if}
+          <p class="meta meta-with-icon">
+            <PlatformIcon platform={watching.platform} variant="inline" />
+            <span>
+              {watching.channel ?? "Unknown channel"}
+              · {kindLabel(watching.content_kind)}
+              · {formatUploadDate(watching.upload_date)}
+              · archived {watching.archived_at}
+              {#if watching.metadata_incomplete}
+                · <span class="warn"
+                  >incomplete metadata ({watching.metadata_gaps.join(", ")})</span
+                >
+              {/if}
+            </span>
           </p>
 
           {#if watching.playback?.mode === "unavailable"}
@@ -755,11 +760,14 @@
                   {#each related as v (v.id)}
                     <li>
                       <button type="button" onclick={() => void openWatch(v)}>
-                        {#if v.has_thumbnail}
-                          <img src={thumbnailUrl(v.platform, v.platform_video_id)} alt="" />
-                        {:else}
-                          <div class="thumb-fallback"></div>
-                        {/if}
+                        <span class="thumb-wrap compact">
+                          {#if v.has_thumbnail}
+                            <img src={thumbnailUrl(v.platform, v.platform_video_id)} alt="" />
+                          {:else}
+                            <div class="thumb-fallback"></div>
+                          {/if}
+                          <PlatformIcon platform={v.platform} variant="overlay" />
+                        </span>
                         <span>
                           <strong>{v.title ?? v.platform_video_id}</strong>
                           <small>{formatUploadDate(v.upload_date)}</small>
@@ -779,11 +787,14 @@
                   {#each upNext as v (v.id)}
                     <li>
                       <button type="button" onclick={() => void openWatch(v)}>
-                        {#if v.has_thumbnail}
-                          <img src={thumbnailUrl(v.platform, v.platform_video_id)} alt="" />
-                        {:else}
-                          <div class="thumb-fallback"></div>
-                        {/if}
+                        <span class="thumb-wrap compact">
+                          {#if v.has_thumbnail}
+                            <img src={thumbnailUrl(v.platform, v.platform_video_id)} alt="" />
+                          {:else}
+                            <div class="thumb-fallback"></div>
+                          {/if}
+                          <PlatformIcon platform={v.platform} variant="overlay" />
+                        </span>
                         <span>
                           <strong>{v.title ?? v.platform_video_id}</strong>
                           <small
@@ -837,11 +848,10 @@
                           img.style.visibility = "hidden";
                         }}
                       />
-                      <span class="channel-name">{ch.channel ?? ch.channel_id}</span>
-                      <span class="platform-badge">{ch.platform}</span>
-                      {#if ch.creator_name}
-                        <span class="muted tiny creator-tag">{ch.creator_name}</span>
-                      {/if}
+                      <span class="channel-name"
+                        >{ch.creator_name ?? ch.channel ?? ch.channel_id}</span
+                      >
+                      <PlatformIcon platform={ch.platform} variant="inline" />
                       <span class="muted count">{ch.video_count}</span>
                     </button>
                     <button
@@ -938,18 +948,20 @@
               <div class="grid" style={`--browse-cols: ${browseColumns}`}>
                 {#each videos as v (v.id)}
                   <button type="button" class="card" onclick={() => void openWatch(v)}>
-                    {#if v.has_thumbnail}
-                      <img src={thumbnailUrl(v.platform, v.platform_video_id)} alt="" />
-                    {:else}
-                      <div class="thumb-fallback wide"></div>
-                    {/if}
+                    <span class="thumb-wrap">
+                      {#if v.has_thumbnail}
+                        <img src={thumbnailUrl(v.platform, v.platform_video_id)} alt="" />
+                      {:else}
+                        <div class="thumb-fallback wide"></div>
+                      {/if}
+                      <PlatformIcon platform={v.platform} variant="overlay" />
+                    </span>
                     <strong>{v.title ?? v.platform_video_id}</strong>
                     <small
                       >{v.channel ?? "Unknown channel"} · {kindLabel(v.content_kind)} · {formatUploadDate(
                         v.upload_date,
                       )}</small
                     >
-                    <span class="platform-badge">{v.platform}</span>
                     {#if v.metadata_incomplete}
                       <span class="badge-warn">Incomplete</span>
                     {/if}
@@ -1943,13 +1955,45 @@
     padding: 0.55rem;
     font-weight: 500;
   }
-  .card img,
+  .thumb-wrap {
+    position: relative;
+    display: block;
+    width: 100%;
+  }
+  .thumb-wrap.compact {
+    width: 5.5rem;
+    flex-shrink: 0;
+  }
+  .card .thumb-wrap img,
+  .card .thumb-wrap .thumb-fallback.wide,
   .thumb-fallback.wide {
     width: 100%;
     aspect-ratio: 16 / 9;
     object-fit: cover;
     border-radius: 4px;
     background: #0a0e12;
+    display: block;
+  }
+  .thumb-wrap.compact img,
+  .thumb-wrap.compact .thumb-fallback {
+    width: 5.5rem;
+    height: 3.1rem;
+    aspect-ratio: auto;
+    object-fit: cover;
+    border-radius: 4px;
+    background: #0a0e12;
+    display: block;
+  }
+  .meta-with-icon {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .thumb-wrap.compact :global(.platform-icon.overlay) {
+    width: 1.25rem;
+    height: 1.25rem;
+    top: 0.22rem;
+    left: 0.22rem;
   }
   .thumb-fallback {
     width: 5.5rem;
