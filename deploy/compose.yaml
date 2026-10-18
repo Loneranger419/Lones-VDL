@@ -17,13 +17,15 @@ services:
       LONES_VDL_DATABASE_PATH: /var/lib/lones-vdl/lones_vdl.db
       LONES_VDL_WEB_DIST: /app/web/dist
       LONES_VDL_YTDLP_EXECUTABLE: yt-dlp
+      # Writable path for UI cookie upload (file may be created by POST /api/cookies/upload).
+      LONES_VDL_YTDLP_COOKIES_FILE: ${LONES_VDL_YTDLP_COOKIES_FILE:-/secrets/cookies.txt}
     volumes:
       # Host archive path (NAS mount on Linux; ../data/archive for local smoke).
       - ${LONES_VDL_HOST_ARCHIVE:-../data/archive}:/archive
       # SQLite on local Docker volume (not on SMB/NFS).
       - lones-vdl-db:/var/lib/lones-vdl
-      # Cookies / secrets (set LONES_VDL_YTDLP_COOKIES_FILE=/secrets/cookies.txt in .env).
-      - ${LONES_VDL_HOST_SECRETS:-../secrets}:/secrets:ro
+      # Cookies / secrets — read-write so the UI can upload cookies.txt.
+      - ${LONES_VDL_HOST_SECRETS:-../secrets}:/secrets
     restart: unless-stopped
 
 volumes:

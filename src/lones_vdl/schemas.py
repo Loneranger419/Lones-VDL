@@ -170,6 +170,8 @@ class PublicConfigResponse(BaseModel):
     download_concurrency: int
     download_max_attempts: int
     cookies_configured: bool
+    # True when LONES_VDL_YTDLP_COOKIES_FILE is set (file may not exist yet).
+    cookies_path_configured: bool = False
     cookie_platforms: list[str]
     cookie_count: int | None = None
     quality_presets: list[str]
@@ -184,6 +186,18 @@ class CookieFilterResponse(BaseModel):
     lines_before: int
     lines_after: int
     backup_path: str | None = None
+
+
+class CookieUploadResponse(BaseModel):
+    """Upload result; never includes cookie values."""
+
+    cookie_count: int
+    bytes_written: int
+    backup_path: str | None = None
+    filtered: bool = False
+    cookies_before_filter: int | None = None
+    cookies_after_filter: int | None = None
+    cookies_removed: int | None = None
 
 
 class VerifyItemResponse(BaseModel):

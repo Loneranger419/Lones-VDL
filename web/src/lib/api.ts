@@ -103,6 +103,7 @@ export type PublicConfig = {
   download_concurrency: number;
   download_max_attempts: number;
   cookies_configured: boolean;
+  cookies_path_configured?: boolean;
   cookie_platforms: string[];
   cookie_count: number | null;
   quality_presets: string[];
@@ -117,6 +118,16 @@ export type CookieFilterResult = {
   lines_before: number;
   lines_after: number;
   backup_path: string | null;
+};
+
+export type CookieUploadResult = {
+  cookie_count: number;
+  bytes_written: number;
+  backup_path: string | null;
+  filtered: boolean;
+  cookies_before_filter: number | null;
+  cookies_after_filter: number | null;
+  cookies_removed: number | null;
 };
 
 export type RefreshResult = {
@@ -196,7 +207,8 @@ async function apiFetch(path: string, init: RequestInit = {}): Promise<Response>
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  if (init.body && !headers.has("Content-Type")) {
+  // Let the browser set multipart boundary for FormData; JSON otherwise.
+  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   const res = await fetch(path, { ...init, headers });
@@ -233,6 +245,21 @@ export async function getConfig(): Promise<PublicConfig> {
 export async function filterCookies(): Promise<CookieFilterResult> {
   const res = await apiFetch("/api/cookies/filter", { method: "POST" });
   if (!res.ok) throw new Error(await readError(res, "Failed to filter cookies"));
+  return res.json();
+}
+
+export async function uploadCookies(
+  file: File,
+  filterAfter = true,
+): Promise<CookieUploadResult> {
+  const body = new FormData();
+  body.append("file", file);
+  const qs = filterAfter ? "" : "?filter_after=false";
+  const res = await apiFetch(`/api/cookies/upload${qs}`, {
+    method: "POST",
+    body,
+  });
+  if (!res.ok) throw new Error(await readError(res, "Failed to upload cookies"));
   return res.json();
 }
 

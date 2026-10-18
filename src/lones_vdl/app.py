@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -21,7 +21,7 @@ from lones_vdl.channel_avatars import (
     resolve_channel_avatar_file,
 )
 from lones_vdl.config import Settings, get_settings, resolve_web_dist
-from lones_vdl.cookies import count_cookie_rows, filter_netscape_cookies
+from lones_vdl.cookies import count_cookie_rows, filter_netscape_cookies, save_netscape_cookies
 from lones_vdl.db import ChannelRow, Database, JobRow
 from lones_vdl.download.service import ArchiveService
 from lones_vdl.errors import ConflictError, DuplicateArchiveError, LonesVdlError
@@ -34,6 +34,7 @@ from lones_vdl.schemas import (
     CancelJobsResponse,
     ChannelResponse,
     CookieFilterResponse,
+    CookieUploadResponse,
     CreatorAttachRequest,
     CreatorChannelRef,
     CreatorCreateRequest,
@@ -258,6 +259,7 @@ def create_app(
     )
     def public_config() -> PublicConfigResponse:
         cookies = settings.ytdlp_cookies_file
+        path_configured = cookies is not None
         configured = bool(cookies and Path(cookies).is_file())
         return PublicConfigResponse(
             default_quality=settings.default_quality,
@@ -265,6 +267,7 @@ def create_app(
             download_concurrency=settings.download_concurrency,
             download_max_attempts=settings.download_max_attempts,
             cookies_configured=configured,
+            cookies_path_configured=path_configured,
             cookie_platforms=settings.cookie_platform_list(),
             cookie_count=count_cookie_rows(Path(cookies)) if configured and cookies else None,
             quality_presets=QUALITY_PRESETS,
@@ -303,6 +306,62 @@ def create_app(
             lines_before=result.lines_before,
             lines_after=result.lines_after,
             backup_path=result.backup_path,
+        )
+
+    @app.post(
+        "/api/cookies/upload",
+        response_model=CookieUploadResponse,
+        dependencies=[Depends(require_token)],
+    )
+    async def upload_cookies(
+        file: Annotated[UploadFile, File(description="Netscape cookies.txt")],
+        filter_after: bool = True,
+    ) -> CookieUploadResponse:
+        """Replace the configured cookies file. Never returns cookie values."""
+        cookies = settings.ytdlp_cookies_file
+        if cookies is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "LONES_VDL_YTDLP_COOKIES_FILE is not configured. "
+                    "Set it (e.g. /secrets/cookies.txt) and ensure the path is writable."
+                ),
+            )
+        # Cap upload size (typical exports are well under this).
+        max_bytes = 5 * 1024 * 1024
+        raw = await file.read(max_bytes + 1)
+        if len(raw) > max_bytes:
+            raise HTTPException(status_code=400, detail="Cookies file too large (max 5 MiB)")
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Cookies file must be UTF-8 text (Netscape cookies.txt)",
+            ) from exc
+        try:
+            result = save_netscape_cookies(
+                Path(cookies),
+                text,
+                platforms=settings.cookie_platform_list(),
+                filter_after=filter_after,
+                write_backup=True,
+            )
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to write cookies file: {exc}",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return CookieUploadResponse(
+            cookie_count=result.cookie_count,
+            bytes_written=result.bytes_written,
+            backup_path=result.backup_path,
+            filtered=result.filtered,
+            cookies_before_filter=result.cookies_before_filter,
+            cookies_after_filter=result.cookies_after_filter,
+            cookies_removed=result.cookies_removed,
         )
 
     @app.post(

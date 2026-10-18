@@ -13,6 +13,7 @@
     detachCreatorChannel,
     enqueueJob,
     filterCookies,
+    uploadCookies,
     formatUploadDate,
     getBrowseColumns,
     getConfig,
@@ -326,6 +327,37 @@
       cookieMsg =
         `Kept ${result.cookies_after} of ${result.cookies_before} cookies` +
         ` (removed ${result.cookies_removed}) for ${result.platforms.join(", ")}.`;
+      config = await getConfig();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      cookieBusy = false;
+    }
+  }
+
+  async function runCookieUpload(fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file) return;
+    if (!config?.cookies_path_configured) {
+      error =
+        "Cookie path is not configured on the server (set LONES_VDL_YTDLP_COOKIES_FILE).";
+      return;
+    }
+    cookieBusy = true;
+    cookieMsg = "";
+    error = "";
+    try {
+      const result = await uploadCookies(file, true);
+      if (result.filtered && result.cookies_after_filter != null) {
+        cookieMsg =
+          `Uploaded and filtered cookies: kept ${result.cookies_after_filter}` +
+          (result.cookies_before_filter != null
+            ? ` of ${result.cookies_before_filter}`
+            : "") +
+          ` (removed ${result.cookies_removed ?? 0}). Values are never shown.`;
+      } else {
+        cookieMsg = `Uploaded ${result.cookie_count} cookies. Values are never shown.`;
+      }
       config = await getConfig();
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
@@ -691,10 +723,39 @@
             }}>Download</button
           >
         </div>
-        {#if config?.cookies_configured && mode === "download"}
-          <button type="button" class="ghost" disabled={cookieBusy} onclick={() => void runCookieFilter()}>
-            {cookieBusy ? "Filtering…" : "Filter cookies"}
-          </button>
+        {#if mode === "download"}
+          <input
+            id="cookie-upload-input"
+            type="file"
+            accept=".txt,text/plain"
+            hidden
+            disabled={cookieBusy || !config?.cookies_path_configured}
+            onchange={(e) => {
+              const input = e.currentTarget;
+              void runCookieUpload(input.files).finally(() => {
+                input.value = "";
+              });
+            }}
+          />
+          <button
+            type="button"
+            class="ghost"
+            disabled={cookieBusy || !config?.cookies_path_configured}
+            title={config?.cookies_path_configured
+              ? "Upload a Netscape cookies.txt to the server"
+              : "Set LONES_VDL_YTDLP_COOKIES_FILE on the server first"}
+            onclick={() => document.getElementById("cookie-upload-input")?.click()}
+            >{cookieBusy ? "Uploading…" : "Upload cookies"}</button
+          >
+          {#if config?.cookies_configured}
+            <button
+              type="button"
+              class="ghost"
+              disabled={cookieBusy}
+              onclick={() => void runCookieFilter()}
+              >Filter cookies</button
+            >
+          {/if}
         {/if}
         <button type="button" class="ghost" onclick={logout}>Clear token</button>
       </div>

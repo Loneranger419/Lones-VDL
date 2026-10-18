@@ -155,3 +155,88 @@ def count_cookie_rows(path: Path) -> int:
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
         if _is_cookie_line(line)
     )
+
+
+@dataclass(frozen=True)
+class CookieUploadResult:
+    path: str
+    cookie_count: int
+    bytes_written: int
+    backup_path: str | None
+    filtered: bool
+    cookies_before_filter: int | None = None
+    cookies_after_filter: int | None = None
+    cookies_removed: int | None = None
+
+
+def validate_netscape_cookies_text(text: str) -> int:
+    """Return cookie row count; raise ValueError if the payload looks invalid."""
+    lines = text.splitlines()
+    count = sum(1 for line in lines if _is_cookie_line(line))
+    has_header = any(
+        line.lstrip().startswith("# Netscape") or "HTTP Cookie File" in line for line in lines[:20]
+    )
+    if count == 0 and not has_header:
+        raise ValueError(
+            "File does not look like a Netscape cookies.txt "
+            "(expected # Netscape header and/or tab-separated cookie rows)"
+        )
+    if count == 0:
+        raise ValueError("Netscape cookies file contains no cookie rows")
+    return count
+
+
+def save_netscape_cookies(
+    destination: Path,
+    text: str,
+    *,
+    platforms: list[str] | None = None,
+    filter_after: bool = True,
+    write_backup: bool = True,
+) -> CookieUploadResult:
+    """Atomically write a Netscape cookies file; optionally filter to archive platforms."""
+    # Normalize newlines; reject NULs (binary uploads).
+    if "\x00" in text:
+        raise ValueError("Cookies upload looks binary; expected UTF-8 Netscape text")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if not text.endswith("\n"):
+        text += "\n"
+    raw_count = validate_netscape_cookies_text(text)
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    backup_path: str | None = None
+    if write_backup and destination.is_file():
+        backup = destination.with_suffix(destination.suffix + ".bak")
+        shutil.copy2(destination, backup)
+        backup_path = str(backup)
+
+    tmp = destination.with_name(destination.name + ".upload.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(destination)
+
+    filtered = False
+    before: int | None = None
+    after: int | None = None
+    removed: int | None = None
+    if filter_after and platforms:
+        result = filter_netscape_cookies(
+            destination,
+            platforms=platforms,
+            write_backup=False,
+        )
+        filtered = True
+        before = result.cookies_before
+        after = result.cookies_after
+        removed = result.cookies_removed
+        raw_count = result.cookies_after
+
+    return CookieUploadResult(
+        path=str(destination),
+        cookie_count=raw_count,
+        bytes_written=destination.stat().st_size,
+        backup_path=backup_path,
+        filtered=filtered,
+        cookies_before_filter=before,
+        cookies_after_filter=after,
+        cookies_removed=removed,
+    )
