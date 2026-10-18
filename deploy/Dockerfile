@@ -12,13 +12,23 @@ RUN npm run build
 # --- runtime ---
 FROM python:3.12-slim-bookworm
 
+# Deno is required for YouTube JS challenges when using cookies (yt-dlp EJS).
+ARG DENO_VERSION=2.9.7
+
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl unzip \
+    && curl -fsSL "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-x86_64-unknown-linux-gnu.zip" \
+        -o /tmp/deno.zip \
+    && unzip -o /tmp/deno.zip -d /usr/local/bin \
+    && chmod +x /usr/local/bin/deno \
+    && rm /tmp/deno.zip \
+    && apt-get purge -y curl unzip \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Official yt-dlp + curl_cffi (browser impersonation helps YouTube).
+# yt-dlp[default] pulls yt-dlp-ejs; curl_cffi helps browser impersonation.
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir "yt-dlp>=2025.9.5" "curl_cffi>=0.7.0"
+    && pip install --no-cache-dir "yt-dlp[default]>=2025.9.5" "curl_cffi>=0.7.0"
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
