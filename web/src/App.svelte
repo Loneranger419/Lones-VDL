@@ -50,9 +50,47 @@
   type Mode = "view" | "download";
   type DownloadTab = "library" | "jobs" | "integrity";
   type SortField = "upload_date" | "title";
+  type CookieBrowser =
+    | "brave"
+    | "chrome"
+    | "edge"
+    | "firefox"
+    | "chromium"
+    | "opera"
+    | "vivaldi";
+  type CookieShell = "powershell" | "cmd" | "bash";
 
   const VIEW_PAGE_SIZE = 32;
   const DOWNLOAD_LIST_LIMIT = 100;
+  const COOKIE_BROWSERS: { id: CookieBrowser; label: string }[] = [
+    { id: "brave", label: "Brave" },
+    { id: "chrome", label: "Chrome" },
+    { id: "edge", label: "Edge" },
+    { id: "firefox", label: "Firefox" },
+    { id: "chromium", label: "Chromium" },
+    { id: "opera", label: "Opera" },
+    { id: "vivaldi", label: "Vivaldi" },
+  ];
+  const COOKIE_EXPORT_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
+
+  function detectCookieShell(): CookieShell {
+    const ua = navigator.userAgent;
+    if (/Windows/i.test(ua)) return "powershell";
+    return "bash";
+  }
+
+  function cookieExportCommand(browser: CookieBrowser, shell: CookieShell): string {
+    const flags =
+      `--cookies-from-browser ${browser} --cookies ` +
+      `{OUT} --skip-download --ignore-no-formats-error "${COOKIE_EXPORT_URL}"`;
+    if (shell === "powershell") {
+      return `yt-dlp ${flags.replace("{OUT}", '"$env:USERPROFILE\\Downloads\\cookies.txt"')}`;
+    }
+    if (shell === "cmd") {
+      return `yt-dlp ${flags.replace("{OUT}", '"%USERPROFILE%\\Downloads\\cookies.txt"')}`;
+    }
+    return `yt-dlp ${flags.replace("{OUT}", '"$HOME/Downloads/cookies.txt"')}`;
+  }
 
   let tokenInput = $state(getToken());
   let authed = $state(Boolean(getToken()));
@@ -87,6 +125,9 @@
   let watchMsg = $state("");
   let cookieBusy = $state(false);
   let cookieMsg = $state("");
+  let cookieExportBrowser = $state<CookieBrowser>("brave");
+  let cookieExportShell = $state<CookieShell>(detectCookieShell());
+  let cookieExportCopied = $state(false);
   let integrityBusy = $state(false);
   let refreshBusy = $state(false);
   let refreshMsg = $state("");
@@ -363,6 +404,20 @@
       error = err instanceof Error ? err.message : String(err);
     } finally {
       cookieBusy = false;
+    }
+  }
+
+  async function copyCookieExportCommand() {
+    const cmd = cookieExportCommand(cookieExportBrowser, cookieExportShell);
+    error = "";
+    try {
+      await navigator.clipboard.writeText(cmd);
+      cookieExportCopied = true;
+      window.setTimeout(() => {
+        cookieExportCopied = false;
+      }, 2000);
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
     }
   }
 
@@ -1087,6 +1142,44 @@
         {#if enqueueMsg}<p class="ok">{enqueueMsg}</p>{/if}
       </section>
 
+      <section class="enqueue cookie-export">
+        <h2>Export cookies (your PC)</h2>
+        <p class="muted tiny">
+          Run this on the machine where you're logged into YouTube/Twitch — not on the archive
+          server. Close the browser first (Chromium-based browsers). Then use
+          <strong>Upload cookies</strong> in the header with the file from your Downloads folder.
+        </p>
+        <div class="cookie-export-controls">
+          <label>
+            Browser
+            <select bind:value={cookieExportBrowser}>
+              {#each COOKIE_BROWSERS as b}
+                <option value={b.id}>{b.label}</option>
+              {/each}
+            </select>
+          </label>
+          <label>
+            Shell
+            <select bind:value={cookieExportShell}>
+              <option value="powershell">PowerShell</option>
+              <option value="cmd">Command Prompt</option>
+              <option value="bash">bash / zsh</option>
+            </select>
+          </label>
+          <button type="button" class="ghost" onclick={() => void copyCookieExportCommand()}
+            >{cookieExportCopied ? "Copied" : "Copy command"}</button
+          >
+        </div>
+        <pre class="cookie-export-cmd">{cookieExportCommand(
+          cookieExportBrowser,
+          cookieExportShell,
+        )}</pre>
+        <p class="muted tiny">
+          Requires <code>yt-dlp</code> on PATH. Writes
+          <code>cookies.txt</code> under your user Downloads folder.
+        </p>
+      </section>
+
       <section class="creators">
         <h2>Creators</h2>
         <p class="muted tiny">
@@ -1720,6 +1813,38 @@
     display: grid;
     grid-template-columns: 1fr minmax(10rem, 16rem) auto;
     gap: 0.5rem;
+  }
+  .cookie-export-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    align-items: flex-end;
+    margin: 0.75rem 0 0.5rem;
+  }
+  .cookie-export-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    color: #c5d0db;
+    font-size: 0.85rem;
+  }
+  .cookie-export-controls select {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 8rem;
+  }
+  .cookie-export-cmd {
+    margin: 0.5rem 0 0;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #2a3542;
+    border-radius: 6px;
+    background: #0a0e12;
+    color: #c5d0db;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-x: auto;
   }
   @media (max-width: 800px) {
     .enqueue-form {
