@@ -1,0 +1,12 @@
+# Local test of the production image on Docker Desktop (Windows). Run from the repo root:
+#   docker compose -f deploy/compose.yaml -f deploy/compose.dev.yaml up --build
+# Uses its own project name and data volume so it never touches a production setup.
+name: lones-vdl-dev
+
+services:
+  lones-vdl:
+    image: lones-vdl:dev
+    environment:
+      LONES_VDL_LOG_LEVEL: debug
+    volumes:
+      - ../data/archive:/archive

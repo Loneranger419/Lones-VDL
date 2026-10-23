@@ -69,11 +69,13 @@ backend/
     media/
     cli.py             # serve, doctor, rescan, set-password
   tests/
-frontend/              # SvelteKit app (src/routes, src/lib/components, src/lib/api)
+frontend/              # SvelteKit app (src/routes, src/lib/components, src/lib/api); build/ output
 deploy/
   Dockerfile           # multi-stage: frontend build → python runtime
   compose.yaml         # production (VM): app + bgutil-pot sidecar
-  compose.dev.yaml     # local Docker Desktop testing
+  compose.dev.yaml     # override for local Docker Desktop testing
+  entrypoint.sh        # chown /data, drop to PUID:PGID
+  vm/                  # VM boot helpers (CIFS mount retries, status report)
   .env.example
 scripts/
   check.ps1, check.sh  # single verification entry point
@@ -159,9 +161,10 @@ The v1 container failed on age-gated videos that worked on Windows. Root cause u
 ## Phases
 
 - [x] **0. Diagnose v1 Docker failure.** Done 2026-10-22 — see "Phase 0 findings" below.
-- [ ] **1. Skeleton.** Move v1 to the `v1` branch; remove v1 code. Create layout above, uv project,
-      SvelteKit app, ruff/pytest/svelte-check, `scripts/check.*`, Dockerfile + compose files.
-      Image builds and serves a placeholder page in Docker Desktop.
+- [x] **1. Skeleton.** Done 2026-10-22. v1 code removed (kept on `v1`). uv backend with health
+      route, SPA serving, CLI (`serve`, `cookies`); SvelteKit 3 + Tailwind 4 + shadcn-svelte
+      (Nova preset); `scripts/check.*`; Dockerfile + compose verified healthy in Docker Desktop
+      (non-root via PUID/PGID, Deno + FFmpeg present).
 - [ ] **2. Backend core.** Config, DB models + first migration, auth, storage, yt-dlp runner +
       updater, job worker, SSE, single-video download end to end, `doctor`.
 - [ ] **3. Backend features.** Playlists/channels expand, channel watch scheduler, creator hub,
@@ -217,10 +220,22 @@ automated tests. Docker changes must be verified by building and running in Dock
 
 ## Development workflow
 
-1. Develop on Windows: backend via `uv run`, frontend via Vite dev server proxying to the API.
-2. Test the production image locally with `deploy/compose.dev.yaml` on Docker Desktop.
+1. Develop on Windows: `cd backend; uv run lones-vdl serve --reload` and
+   `cd frontend; npm run dev` (Vite proxies `/api` to `127.0.0.1:8080`).
+2. Test the production image locally:
+   `docker compose -f deploy/compose.yaml -f deploy/compose.dev.yaml up --build`.
 3. Promote the same Git revision to the Linux VM.
 4. Ask before installing dependencies, changing Git remotes, or committing.
+
+## Frontend conventions (SvelteKit 3)
+
+- Config lives in `frontend/vite.config.ts` (no `svelte.config.js`). SPA via
+  `adapter-static` with `fallback: 'index.html'`; `ssr = false` in the root `+layout.ts`.
+- Internal imports use Node subpath imports `#lib/...` (not `$lib`) and must name the file
+  with a `.js` extension: `import { Button } from '#lib/components/ui/button/index.js'`.
+- Add shadcn-svelte components with `npx shadcn-svelte@1.7.0 add <name>`; run
+  `npx svelte-kit sync` first on a fresh checkout (it generates `node_modules/$app/tsconfig`).
+- Svelte 5 runes only (`$state`, `$derived`, `$effect`, `$props`). Formatting is prettier.
 
 ## Out of scope (until decided otherwise)
 

@@ -1,134 +1,64 @@
 # Lones-VDL
 
-Cross-platform (Windows develop → Linux/Docker deploy) video archival system focused on
-reliable long-term preservation of YouTube and Twitch content and metadata.
+Self-hosted YouTube archive: download with yt-dlp, preserve media and metadata, browse and
+watch in a web UI. Runs in Docker on a Linux VM; developed on Windows.
 
-**Status:** YouTube + Twitch VODs/clips; View/Download browse; playlists/channel expand + watch; creator hub.
+> v2 rewrite in progress. See [AGENTS.md](AGENTS.md) for the plan and current phase.
+> The previous version lives on the `v1` branch.
 
-## Architecture
+## Layout
 
-See [docs/architecture.md](docs/architecture.md) and [AGENTS.md](AGENTS.md).
+| Path | What |
+|------|------|
+| `backend/` | Python 3.12 + FastAPI, managed with [uv](https://docs.astral.sh/uv/) |
+| `frontend/` | SvelteKit (static SPA) + Tailwind + shadcn-svelte |
+| `deploy/` | Dockerfile, compose files, VM helper scripts |
+| `scripts/` | `check.ps1` / `check.sh` — the single verification entry point |
 
-## Requirements (development)
+## Develop (Windows)
 
-- Python 3.11+
-- (Later) yt-dlp, FFmpeg on PATH or via Docker image
-- Node.js 20+ when building the web UI (placeholder present; not required for API smoke tests)
-
-## Quick start (Windows)
-
-One-shot local UI + API (verifies `.venv` / deps). Prefers **Windows Terminal** with API | Vite split panes in one window; API pane restarts with Ctrl+C then Enter (no new window). Falls back to separate consoles if `wt.exe` is missing.
-
-```powershell
-# First time (creates .venv, pip install -e ".[dev]", npm install, copies .env):
-powershell -File scripts\dev.ps1 -Install
-
-# Later:
-powershell -File scripts\dev.ps1
-# or: scripts\dev.cmd
-```
-
-Flags: `-ApiOnly`, `-WebOnly`, `-NoTerminal` (skip Windows Terminal). API: `http://127.0.0.1:8080` · UI: `http://127.0.0.1:5173` (enter `LONES_VDL_API_TOKEN` from `.env`).
-
-Manual equivalent:
+Requires uv, Node 22, and Docker Desktop (for image testing).
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-copy .env.example .env
-powershell -File scripts\check.ps1
-python -m lones_vdl serve
+# backend API on http://127.0.0.1:8080 (auto-reload)
+cd backend; uv run lones-vdl serve --reload
+
+# frontend dev server on http://localhost:5173 (proxies /api to the backend)
+cd frontend; npm install; npm run dev
 ```
 
-Install **yt-dlp** (and FFmpeg) on PATH for real downloads. Automated tests mock yt-dlp.
+Optional: copy `.env.example` to `.env` at the repo root to change paths and ports.
 
-For fewer YouTube TLS / rate-limit issues, install a yt-dlp build with impersonation
-support (e.g. official `yt-dlp.exe`, or `pip install "yt-dlp[default,curl-cffi]"`) and
-confirm with `yt-dlp --list-impersonate-targets`.
-
-Downloads are two-phase: media first, then a best-effort English subtitle pass. Subtitle
-429s no longer fail the archive. Auto-sub language wildcards (`en.*`) are avoided because
-they request many translated tracks and trip rate limits on playlists.
-
-Health check: `GET http://127.0.0.1:8080/api/health`
-
-Enqueue (API):
+## Verify
 
 ```powershell
-curl -X POST http://127.0.0.1:8080/api/jobs `
-  -H "Authorization: Bearer change-me" `
-  -H "Content-Type: application/json" `
-  -d "{\"url\":\"https://www.youtube.com/watch?v=VIDEO_ID\"}"
+powershell -File scripts/check.ps1
 ```
 
-Enqueue (CLI, synchronous):
+Runs ruff, pytest, prettier, svelte-check, and the frontend build.
+
+## Test the production image locally
 
 ```powershell
-python -m lones_vdl enqueue --sync "https://www.youtube.com/watch?v=VIDEO_ID"
+docker compose -f deploy/compose.yaml -f deploy/compose.dev.yaml up --build
+# open http://localhost:8080 ; stop with: docker compose -f deploy/compose.yaml -f deploy/compose.dev.yaml down
 ```
 
-### Web UI (dev)
-
-Prefer `scripts\dev.ps1` (above). Manual:
-
-```powershell
-# Terminal 1
-python -m lones_vdl serve
-
-# Terminal 2 — proxies /api to :8080
-cd web
-npm run dev
-```
-
-Open `http://127.0.0.1:5173`, enter your `LONES_VDL_API_TOKEN`, browse the library.
-AV1+Opus archives remux to WebM on first play (original untouched).
-
-## Verification
-
-```powershell
-powershell -File scripts\check.ps1
-```
-
-Or: `make check` (if `make` is available).
-
-## Docker (Linux target)
-
-Multi-stage image under `deploy/` builds the Svelte UI, installs the API, and includes
-FFmpeg + yt-dlp. Intended for the headless host with a NAS bind-mount for media and a
-**local** Docker volume for SQLite. Not used for day-to-day Windows editing (`scripts/dev.ps1`).
+## Deploy (Linux VM)
 
 ```bash
-cd deploy
-cp .env.example .env   # set LONES_VDL_API_TOKEN and archive/secrets host paths
-docker compose up --build
+cp deploy/.env.example deploy/.env   # set LONES_VDL_HOST_ARCHIVE, PUID/PGID
+docker compose -f deploy/compose.yaml up -d --build
 ```
 
-- UI + API: `http://localhost:8080` (enter the API token)
-- Health: `http://localhost:8080/api/health`
-- Optional cookies: place a Netscape jar under the host secrets dir and set
-  `LONES_VDL_YTDLP_COOKIES_FILE=/secrets/cookies.txt` in `deploy/.env`
+## Cookies
 
-## Roadmap (high level)
+YouTube currently requires signed-in cookies for downloads. Export `cookies.txt` from a
+private browser window (then close it), and filter it to YouTube-only before use:
 
-1. Core YouTube single-video archive path (API + sidecars + SQLite) — done
-2. Web library + remux-only playback — done
-3. Web job control — done
-4. Integrity rescan/verify — done
-5. ~~Desktop client~~ — cancelled (LAN/VPN web UI only)
-6. View|Download browse + channel avatars — done
-7. Playlist/channel expand + channel watch + delete entry — done
-8. Twitch VODs/clips + creator hub — done
-9. Headless Linux/Docker deploy + NAS bind-mount — next
+```powershell
+cd backend; uv run lones-vdl cookies ..\secrets\cookies.txt --replace
+```
 
-Enqueue accepts YouTube video/playlist/channel and Twitch VOD/clip/channel URLs. Channel “Watch” re-lists YouTube uploads or Twitch VOD archives on an interval (`LONES_VDL_CHANNEL_WATCH_INTERVAL_HOURS`) and via **Check watched now** (Twitch clips stay manual). Library filters: platform, content kind (`video` / `vod` / `clip`), and `platform:channel_id` channel keys. Creator hub links channels across sites for related/up-next. Downloads are media-first; English subs are best-effort. Prefer a yt-dlp build with `curl_cffi` impersonation on the host. Cookie filter defaults include youtube + twitch.
-
-**Next session leftovers:** optional View channel-bar polish; confirm curl_cffi/official yt-dlp on the download host; Linux/Docker + NAS deploy.
-
-**Manual smoke:** YouTube playlist or channel; one Twitch VOD + one clip; Twitch channel watch; link YT+Twitch under one creator and confirm related crosses sites.
-
-CLI: `python -m lones_vdl verify` · `python -m lones_vdl rescan`
-
-## License
-
-Proprietary / private unless otherwise stated.
+The filter keeps only `youtube.com` cookies and never prints cookie values. Never commit
+cookie files.

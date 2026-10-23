@@ -1,32 +1,25 @@
-# Target: headless Linux host. Mount NAS at ARCHIVE_ROOT; keep DB on a local volume.
-# Local smoke (from repo): copy deploy/.env.example → deploy/.env, then:
-#   docker compose -f deploy/compose.yaml up --build
+# Production (Linux VM). Copy deploy/.env.example → deploy/.env and set LONES_VDL_HOST_ARCHIVE.
+#   docker compose -f deploy/compose.yaml up -d --build
+name: lones-vdl
+
 services:
   lones-vdl:
+    image: lones-vdl:latest
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+    restart: unless-stopped
     ports:
       - "${LONES_VDL_PORT:-8080}:8080"
-    env_file:
-      - .env
     environment:
-      LONES_VDL_HOST: "0.0.0.0"
-      LONES_VDL_PORT: "8080"
-      LONES_VDL_ARCHIVE_ROOT: /archive
-      LONES_VDL_DATABASE_PATH: /var/lib/lones-vdl/lones_vdl.db
-      LONES_VDL_WEB_DIST: /app/web/dist
-      LONES_VDL_YTDLP_EXECUTABLE: yt-dlp
-      # Writable path for UI cookie upload (file may be created by POST /api/cookies/upload).
-      LONES_VDL_YTDLP_COOKIES_FILE: ${LONES_VDL_YTDLP_COOKIES_FILE:-/secrets/cookies.txt}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
     volumes:
-      # Host archive path (NAS mount on Linux; ../data/archive for local smoke).
-      - ${LONES_VDL_HOST_ARCHIVE:-../data/archive}:/archive
-      # SQLite on local Docker volume (not on SMB/NFS).
-      - lones-vdl-db:/var/lib/lones-vdl
-      # Cookies / secrets — read-write so the UI can upload cookies.txt.
-      - ${LONES_VDL_HOST_SECRETS:-../secrets}:/secrets
-    restart: unless-stopped
+      # Local disk: SQLite, cookies, yt-dlp venv, logs. Never put this on a network share.
+      - data:/data
+      # Media archive (NAS mount on the VM).
+      - ${LONES_VDL_HOST_ARCHIVE:-/mnt/lonesvdl}:/archive
 
 volumes:
-  lones-vdl-db:
+  data:
