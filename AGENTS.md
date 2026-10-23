@@ -165,8 +165,12 @@ The v1 container failed on age-gated videos that worked on Windows. Root cause u
       route, SPA serving, CLI (`serve`, `cookies`); SvelteKit 3 + Tailwind 4 + shadcn-svelte
       (Nova preset); `scripts/check.*`; Dockerfile + compose verified healthy in Docker Desktop
       (non-root via PUID/PGID, Deno + FFmpeg present).
-- [ ] **2. Backend core.** Config, DB models + first migration, auth, storage, yt-dlp runner +
-      updater, job worker, SSE, single-video download end to end, `doctor`.
+- [x] **2. Backend core.** Done 2026-10-22 (live success download pending fresh cookies).
+      SQLAlchemy models + Alembic `0001`; password/session auth with throttle + CSRF header
+      (`x-lones-vdl: 1`); managed yt-dlp venv with auto-install/update; durable job queue with
+      retry/backoff/cancel/restart recovery; SSE `/api/events`; storage with atomic promote,
+      sidecar, checksums; `doctor`, `cookies import`, `set-password`, `ytdlp update` CLI.
+      Verified in Docker: auto-install, real yt-dlp error classification (`cookies_missing`).
 - [ ] **3. Backend features.** Playlists/channels expand, channel watch scheduler, creator hub,
       collections, watch progress, integrity verify/rescan, cookies API, media streaming (range).
 - [ ] **4. Frontend.** Design tokens + theme toggle, app shell (sidebar/bottom nav), login/setup,
@@ -226,6 +230,19 @@ automated tests. Docker changes must be verified by building and running in Dock
    `docker compose -f deploy/compose.yaml -f deploy/compose.dev.yaml up --build`.
 3. Promote the same Git revision to the Linux VM.
 4. Ask before installing dependencies, changing Git remotes, or committing.
+
+## Backend conventions
+
+- Run backend commands from the repo root: `uv run --project backend lones-vdl ...`.
+- Schema changes: edit `db/models.py`, then `uv run --project backend lones-vdl db
+  make-migration "msg"`; review and rename the file to `NNNN_<slug>.py` with matching
+  `revision`. `test_migrations_match_models` fails if models and migrations drift.
+- Tests drive the real subprocess path with `backend/tests/fake_ytdlp.py` (behaviour chosen by
+  video id prefix). Never call real YouTube from automated tests.
+- `get_db` commits at request end; routes whose effects must be visible before the response
+  (cookies, worker wake-ups, events) call `db.commit()` explicitly first.
+- State-changing API requests require header `x-lones-vdl: 1` (CSRF guard).
+- Scripted file edits on Windows: always pass `encoding="utf-8"`; prefer the Edit tool.
 
 ## Frontend conventions (SvelteKit 3)
 

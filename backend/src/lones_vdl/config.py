@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +28,24 @@ class Settings(BaseSettings):
     # Built SvelteKit app. Unset → auto-detect the repo build or the Docker image path.
     frontend_dist: Path | None = None
 
+    # Auth
+    session_days: int = Field(default=90, ge=1)
+    # Set when served over HTTPS (e.g. behind a reverse proxy); plain-HTTP LAN needs False.
+    cookie_secure: bool = False
+
+    # Downloads
+    download_concurrency: int = Field(default=1, ge=1, le=8)
+    download_max_attempts: int = Field(default=3, ge=1)
+    default_quality: str = "best"
+
+    # yt-dlp. Normally a managed venv under data_dir/ytdlp, kept current by the app.
+    # Set ytdlp_executable to use an existing install instead (disables managed updates).
+    ytdlp_executable: str | None = None
+    ytdlp_channel: Literal["stable", "nightly"] = "stable"
+    ytdlp_update_interval_hours: float = Field(default=24.0, ge=0)
+    # Unset → $UV (exported by `uv run`) or `uv` on PATH.
+    uv_executable: str | None = None
+
     @property
     def database_path(self) -> Path:
         return self.data_dir / "lones_vdl.db"
@@ -45,6 +65,11 @@ class Settings(BaseSettings):
     @property
     def job_logs_dir(self) -> Path:
         return self.data_dir / "logs" / "jobs"
+
+    @property
+    def partial_dir(self) -> Path:
+        # On the archive filesystem so promotion is a same-filesystem rename.
+        return self.archive_root / ".partial"
 
     def resolve_frontend_dist(self) -> Path | None:
         candidates = (
