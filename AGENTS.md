@@ -165,7 +165,8 @@ The v1 container failed on age-gated videos that worked on Windows. Root cause u
       route, SPA serving, CLI (`serve`, `cookies`); SvelteKit 3 + Tailwind 4 + shadcn-svelte
       (Nova preset); `scripts/check.*`; Dockerfile + compose verified healthy in Docker Desktop
       (non-root via PUID/PGID, Deno + FFmpeg present).
-- [x] **2. Backend core.** Done 2026-10-22 (live success download pending fresh cookies).
+- [x] **2. Backend core.** Done 2026-10-22. Live-verified in Docker with private-window
+      cookies: age-restricted 720p (AV1+Opus webm) and public video archived, checksums OK.
       SQLAlchemy models + Alembic `0001`; password/session auth with throttle + CSRF header
       (`x-lones-vdl: 1`); managed yt-dlp venv with auto-install/update; durable job queue with
       retry/backoff/cancel/restart recovery; SSE `/api/events`; storage with atomic promote,
