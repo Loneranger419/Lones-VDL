@@ -3,6 +3,7 @@
 <archive_root>/<platform>/<video_id>/
     media.<ext>  info.json  thumbnail.jpg  subtitles/<lang>.vtt
     metadata.json  checksums.json
+<archive_root>/<platform>/_channels/<channel_id>/avatar.jpg, banner.jpg
 <archive_root>/.partial/<job_id>/      in-progress downloads (same filesystem → atomic move)
 """
 
@@ -21,6 +22,7 @@ SIDECAR_SCHEMA_VERSION = 1
 METADATA_FILE = "metadata.json"
 CHECKSUMS_FILE = "checksums.json"
 INFO_FILE = "info.json"
+CHANNELS_DIR = "_channels"
 
 _MEDIA_EXTS = {".webm", ".mp4", ".mkv", ".m4a", ".mp3", ".opus", ".ogg", ".mov", ".flv"}
 _THUMB_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -37,8 +39,24 @@ def video_dir(root: Path, platform: str, video_id: str) -> Path:
     return root / platform / video_id
 
 
+def channel_dir(root: Path, platform: str, channel_id: str) -> Path:
+    """Channel artwork. The leading underscore keeps it apart from video id directories."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", channel_id):
+        raise ValueError(f"unsafe channel id: {channel_id!r}")
+    return root / platform / CHANNELS_DIR / channel_id
+
+
 def relative(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
+
+
+def resolve_inside(root: Path, rel: str) -> Path:
+    """Resolve a DB-stored relative path, refusing anything that escapes the archive root."""
+    base = root.resolve()
+    path = (base / rel).resolve()
+    if not path.is_relative_to(base):
+        raise ValueError(f"path escapes the archive root: {rel!r}")
+    return path
 
 
 def partial_dir(partial_root: Path, job_id: int) -> Path:

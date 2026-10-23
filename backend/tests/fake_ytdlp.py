@@ -5,6 +5,9 @@ Behaviour is chosen by the video id prefix:
     gone*    video unavailable            flaky*   HTTP 429 on the first resolve only
     subfail* media ok, subtitle error     slow*    slow download (for cancel tests)
     anything else: success
+--flat-playlist listings come from $FAKE_YTDLP_STATE/listings.json:
+    {"videos": [entries], "streams": [...], "playlist": [...]}; a missing tab key means the
+    channel has no such tab. Entries are video ids or {"id", "live_status"} objects.
 State (call counts, cookie paths seen) goes to $FAKE_YTDLP_STATE.
 """
 
@@ -125,10 +128,65 @@ def download(args: list[str]) -> None:
         fail("ERROR: Unable to download video subtitles for 'de': HTTP Error 429")
 
 
+CHANNEL_ID = "UC" + "x" * 22
+DEFAULT_LISTINGS = {"videos": ["okokokokok1", "okokokokok2"], "playlist": ["okokokokok3"]}
+
+
+def listing(args: list[str]) -> None:
+    url = args[-1]
+    record("listings", url)
+    state = os.environ.get("FAKE_YTDLP_STATE")
+    path = Path(state) / "listings.json" if state else None
+    listings = (
+        json.loads(path.read_text(encoding="utf-8")) if path and path.exists() else DEFAULT_LISTINGS
+    )
+    tab = "playlist" if "list=" in url else url.rstrip("/").rsplit("/", 1)[-1]
+    if "@botchannel" in url:
+        fail("ERROR: [youtube:tab] Sign in to confirm you’re not a bot.")
+    if tab not in listings:
+        fail(f"ERROR: [youtube:tab] @fakechannel: This channel does not have a {tab} tab")
+    entries = []
+    for item in listings[tab]:
+        item = {"id": item} if isinstance(item, str) else item
+        entries.append(
+            {
+                "_type": "url",
+                "ie_key": "Youtube",
+                "url": f"https://www.youtube.com/watch?v={item['id']}",
+                "title": f"Title {item['id']}",
+                **item,
+            }
+        )
+    end = arg_after(args, "--playlist-end")
+    if end:
+        entries = entries[: int(end)]
+    print(
+        json.dumps(
+            {
+                "_type": "playlist",
+                "id": "PLfake" if tab == "playlist" else CHANNEL_ID,
+                "title": "Fake Playlist" if tab == "playlist" else f"Fake Channel - {tab}",
+                "channel": "Fake Channel",
+                "channel_id": CHANNEL_ID,
+                "uploader_id": "@fakechannel",
+                "channel_url": f"https://www.youtube.com/channel/{CHANNEL_ID}",
+                "description": "About the fake channel.",
+                "thumbnails": [
+                    {"id": "avatar_uncropped", "url": "https://yt3.example.com/avatar"},
+                    {"id": "banner_uncropped", "url": "https://yt3.example.com/banner"},
+                ],
+                "entries": entries,
+            }
+        )
+    )
+
+
 def main() -> None:
     args = sys.argv[1:]
     if "--version" in args:
         print(VERSION)
+    elif "--flat-playlist" in args:
+        listing(args)
     elif "--dump-single-json" in args:
         resolve(args)
     elif "--load-info-json" in args:

@@ -10,25 +10,31 @@ from sqlalchemy.orm import sessionmaker
 
 from lones_vdl.config import Settings
 from lones_vdl.db import create_db_engine, make_sessionmaker, upgrade
+from lones_vdl.db.models import JobKind
 from lones_vdl.events import EventBus
-from lones_vdl.jobs.worker import Worker
+from lones_vdl.jobs.scheduler import ChannelScheduler
+from lones_vdl.jobs.worker import Worker, default_lanes
 from lones_vdl.jobs.ytdlp_updates import YtdlpUpdater
 from lones_vdl.services.auth import LoginThrottle
 from lones_vdl.services.downloads import DownloadPipeline
+from lones_vdl.services.expand import ExpandPipeline
+from lones_vdl.services.integrity import RescanPipeline, VerifyPipeline
 from lones_vdl.services.jobs import JobReporter
+from lones_vdl.services.runtime import RuntimeConfig
 from lones_vdl.ytdlp import YtdlpManager
 
 
 @dataclass
 class Services:
     settings: Settings
+    runtime: RuntimeConfig
     engine: Engine
     sessions: sessionmaker
     bus: EventBus
     ytdlp: YtdlpManager
     reporter: JobReporter
-    pipeline: DownloadPipeline
     worker: Worker
+    scheduler: ChannelScheduler
     updater: YtdlpUpdater
     throttle: LoginThrottle = field(default_factory=LoginThrottle)
 
@@ -39,36 +45,45 @@ class Services:
         engine = create_db_engine(settings.database_path)
         upgrade(engine)
         sessions = make_sessionmaker(engine)
+        runtime = RuntimeConfig(settings, sessions)
         bus = EventBus()
         ytdlp = YtdlpManager(settings, command=ytdlp_command)
         reporter = JobReporter(sessions, bus)
-        pipeline = DownloadPipeline(settings, sessions, ytdlp, reporter)
         worker = Worker(
-            concurrency=settings.download_concurrency,
             sessions=sessions,
-            pipeline=pipeline,
             reporter=reporter,
             ytdlp=ytdlp,
+            pipelines={
+                JobKind.DOWNLOAD: DownloadPipeline(settings, sessions, ytdlp, reporter),
+                JobKind.EXPAND: ExpandPipeline(settings, sessions, ytdlp, reporter),
+                JobKind.VERIFY: VerifyPipeline(settings, sessions, reporter),
+                JobKind.RESCAN: RescanPipeline(settings, sessions, reporter),
+            },
+            lanes=default_lanes(lambda: runtime.current.download_concurrency),
         )
-        updater = YtdlpUpdater(settings, ytdlp, sessions, bus, on_installed=worker.wake)
+        scheduler = ChannelScheduler(settings, runtime, sessions, bus, on_queued=worker.wake)
+        updater = YtdlpUpdater(settings, runtime, ytdlp, sessions, bus, on_installed=worker.wake)
         return cls(
             settings=settings,
+            runtime=runtime,
             engine=engine,
             sessions=sessions,
             bus=bus,
             ytdlp=ytdlp,
             reporter=reporter,
-            pipeline=pipeline,
             worker=worker,
+            scheduler=scheduler,
             updater=updater,
         )
 
     async def start(self) -> None:
         self.bus.bind(asyncio.get_running_loop())
         await self.worker.start()
+        await self.scheduler.start()
         await self.updater.start()
 
     async def stop(self) -> None:
         await self.updater.stop()
+        await self.scheduler.stop()
         await self.worker.stop()
         self.engine.dispose()

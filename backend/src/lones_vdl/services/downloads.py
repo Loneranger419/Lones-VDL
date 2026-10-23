@@ -16,10 +16,21 @@ from sqlalchemy.orm import sessionmaker
 from lones_vdl import __version__
 from lones_vdl.config import Settings
 from lones_vdl.db import utcnow
-from lones_vdl.db.models import Channel, ContentKind, Job, JobStage, Video
+from lones_vdl.db.models import ContentKind, Job, JobKind, JobStage, JobStatus, Video
 from lones_vdl.platforms import UrlKind, parse_url
 from lones_vdl.schemas import JobProgress
-from lones_vdl.services.jobs import JobReporter, active_job_for
+from lones_vdl.services import channels as channel_service
+from lones_vdl.services import cookies as cookie_service
+from lones_vdl.services.jobs import (
+    PRIORITY_BACKFILL,
+    PRIORITY_EXPAND,
+    PRIORITY_MANUAL,
+    PRIORITY_PLAYLIST,
+    JobReporter,
+    active_expand_for_url,
+    active_job_for,
+    open_job_log,
+)
 from lones_vdl.storage import archive
 from lones_vdl.ytdlp import QUALITIES, CancelToken, ErrorKind, YtdlpError, YtdlpManager
 from lones_vdl.ytdlp.runner import parse_progress
@@ -36,31 +47,86 @@ class EnqueueError(Exception):
         self.extra = extra
 
 
-def enqueue(db: DbSession, settings: Settings, url: str, quality: str | None) -> Job:
+def enqueue(
+    db: DbSession,
+    settings: Settings,
+    url: str,
+    quality: str | None,
+    *,
+    default_quality: str,
+    watch: bool | None = None,
+    backfill: bool = True,
+    tabs: list[str] | None = None,
+) -> Job:
+    """Queue a video download, or an expansion job for a playlist/channel URL."""
     parsed = parse_url(url)
     if parsed is None:
         raise EnqueueError(422, ErrorKind.UNSUPPORTED, "Not a recognised YouTube URL.")
-    if parsed.kind != UrlKind.VIDEO:
-        raise EnqueueError(422, ErrorKind.UNSUPPORTED, "Only single videos are supported so far.")
-    quality = quality or settings.default_quality
+    explicit_quality = quality
+    quality = quality or default_quality
     if quality not in QUALITIES:
         raise EnqueueError(422, ErrorKind.UNSUPPORTED, f"Unknown quality: {quality}")
-    assert parsed.id is not None
-    existing = db.scalars(
-        select(Video).where(Video.platform == parsed.platform, Video.video_id == parsed.id)
-    ).first()
-    if existing is not None:
-        raise EnqueueError(409, ErrorKind.CONFLICT, "Already archived.", video_pk=existing.id)
-    active = active_job_for(db, parsed.platform, parsed.id)
-    if active is not None:
-        raise EnqueueError(409, ErrorKind.CONFLICT, "Already queued.", job_id=active.id)
-    job = Job(
-        url=parsed.url,
-        platform=parsed.platform,
-        video_id=parsed.id,
-        quality=quality,
-        max_attempts=settings.download_max_attempts,
-    )
+
+    if parsed.kind == UrlKind.VIDEO:
+        assert parsed.id is not None
+        existing = db.scalars(
+            select(Video).where(Video.platform == parsed.platform, Video.video_id == parsed.id)
+        ).first()
+        if existing is not None:
+            raise EnqueueError(409, ErrorKind.CONFLICT, "Already archived.", video_pk=existing.id)
+        active = active_job_for(db, parsed.platform, parsed.id)
+        if active is not None:
+            raise EnqueueError(409, ErrorKind.CONFLICT, "Already queued.", job_id=active.id)
+        # An explicit request overrides an earlier "deleted"/"unavailable" ignore.
+        channel_service.unignore(db, parsed.platform, parsed.id)
+        job = Job(
+            url=parsed.url,
+            platform=parsed.platform,
+            video_id=parsed.id,
+            quality=quality,
+            priority=PRIORITY_MANUAL,
+            max_attempts=settings.download_max_attempts,
+        )
+    else:
+        is_channel = parsed.kind == UrlKind.CHANNEL
+        bad_tabs = set(tabs or []) - set(channel_service.TABS)
+        if bad_tabs:
+            raise EnqueueError(422, ErrorKind.UNSUPPORTED, f"Unknown tabs: {sorted(bad_tabs)}")
+        options: dict[str, Any] = {
+            "mode": "all" if backfill or not is_channel else "baseline",
+            "quality": quality,
+            "child_priority": PRIORITY_BACKFILL if is_channel else PRIORITY_PLAYLIST,
+        }
+        if is_channel:
+            options["tabs"] = tabs or ["videos", "streams"]
+            if watch is not None:
+                options["watch"] = watch
+                # Pin the channel's quality only when chosen; otherwise it follows the default.
+                options["watch_quality"] = explicit_quality
+        active = active_expand_for_url(db, parsed.url)
+        if active is not None:
+            meta_only = (active.options or {}).get("mode") == "meta"
+            if not (meta_only and active.status == JobStatus.QUEUED):
+                raise EnqueueError(
+                    409, ErrorKind.CONFLICT, "Already being listed.", job_id=active.id
+                )
+            # A queued background metadata refresh: turn it into the full listing.
+            active.options = options
+            active.quality = quality
+            active.priority = PRIORITY_EXPAND
+            active.max_attempts = settings.download_max_attempts
+            active.next_attempt_at = utcnow()
+            db.flush()
+            return active
+        job = Job(
+            kind=JobKind.EXPAND,
+            url=parsed.url,
+            platform=parsed.platform,
+            quality=quality,
+            priority=PRIORITY_EXPAND,
+            options=options,
+            max_attempts=settings.download_max_attempts,
+        )
     db.add(job)
     db.flush()
     return job
@@ -127,16 +193,6 @@ def parse_upload_date(value: Any) -> date | None:
     return None
 
 
-def channel_fields(info: dict[str, Any]) -> dict[str, str | None]:
-    handle = info.get("uploader_id")
-    return {
-        "channel_id": info.get("channel_id") or None,
-        "name": info.get("channel") or info.get("uploader"),
-        "handle": handle if isinstance(handle, str) and handle.startswith("@") else None,
-        "url": info.get("channel_url") or info.get("uploader_url"),
-    }
-
-
 def build_metadata(
     *,
     job: Job,
@@ -153,7 +209,7 @@ def build_metadata(
         "video_id": info["id"],
         "content_kind": content_kind(info).value,
         "title": info.get("title"),
-        "channel": channel_fields(info),
+        "channel": channel_service.channel_fields(info),
         "upload_date": info.get("upload_date"),
         "duration_seconds": info.get("duration"),
         "source_url": job.url,
@@ -176,29 +232,19 @@ def build_metadata(
 def index_video(
     db: DbSession,
     *,
-    job: Job,
+    platform: str,
+    source_url: str,
     info: dict[str, Any],
     directory: str,
-    outputs: archive.Outputs,
+    media_file: str,
     media_size: int,
+    thumbnail_file: str | None,
+    archived_at: datetime | None = None,
 ) -> Video:
-    fields = channel_fields(info)
-    channel = None
-    if fields["channel_id"]:
-        channel = db.scalars(
-            select(Channel).where(
-                Channel.platform == job.platform, Channel.channel_id == fields["channel_id"]
-            )
-        ).first()
-        if channel is None:
-            channel = Channel(platform=job.platform, **fields)
-            db.add(channel)
-        else:
-            channel.name = fields["name"] or channel.name
-            channel.handle = fields["handle"] or channel.handle
-            channel.url = fields["url"] or channel.url
+    """Insert the DB row for an archived item (also used by rescan)."""
+    channel = channel_service.upsert_channel(db, platform, channel_service.channel_fields(info))
     video = Video(
-        platform=job.platform,
+        platform=platform,
         video_id=info["id"],
         content_kind=content_kind(info),
         channel=channel,
@@ -210,11 +256,12 @@ def index_video(
         height=info.get("height"),
         view_count=info.get("view_count"),
         like_count=info.get("like_count"),
-        source_url=job.url,
+        source_url=source_url,
         directory=directory,
-        media_file=outputs.media.name,
+        media_file=media_file,
         media_size=media_size,
-        thumbnail_file=outputs.thumbnail.name if outputs.thumbnail else None,
+        thumbnail_file=thumbnail_file,
+        archived_at=archived_at or utcnow(),
     )
     db.add(video)
     db.flush()
@@ -234,26 +281,21 @@ class DownloadPipeline:
         self.ytdlp = ytdlp
         self.reporter = reporter
 
-    def workdir(self, job_id: int) -> Path:
-        return self.settings.partial_dir / str(job_id)
+    def cleanup(self, job_id: int) -> None:
+        archive.remove_partial(self.settings.partial_dir / str(job_id))
 
-    def log_path(self, job_id: int) -> Path:
-        return self.settings.job_logs_dir / f"{job_id}.log"
-
-    def run(self, job_id: int, cancel: CancelToken) -> int:
-        """Run one attempt. Returns the new video's primary key; raises on failure."""
+    def run(self, job_id: int, cancel: CancelToken) -> dict[str, Any]:
+        """Run one attempt. Returns fields to set on the completed job; raises on failure."""
         with self.sessions() as db:
             job = db.get_one(Job, job_id)
-        log_path = self.log_path(job_id)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as log:
-            log.write(f"\n===== attempt {job.attempts} at {utcnow().isoformat()} =====\n")
-            log.write(f"url={job.url} quality={job.quality}\n")
-            return self._run(job, cancel, log)
+        with open_job_log(self.settings, job) as log:
+            video_pk = self._run(job, cancel, log)
+        return {"video_pk": video_pk}
 
     def _run(self, job: Job, cancel: CancelToken, log: TextIO) -> int:
         workdir = archive.partial_dir(self.settings.partial_dir, job.id)
         with self.ytdlp.using() as runner:
+            used_cookies = runner.has_cookies
             version = self.ytdlp.version()
             self.reporter.update(job.id, stage=JobStage.RESOLVING, ytdlp_version=version)
             log.write(f"yt-dlp {version} cookies={'yes' if runner.has_cookies else 'no'}\n")
@@ -298,21 +340,42 @@ class DownloadPipeline:
         archive.promote(workdir, dest)
         log.write(f"archived to {dest}\n")
 
-        final = archive.Outputs(
-            media=dest / outputs.media.name,
-            info=dest / outputs.info.name if outputs.info else None,
-            thumbnail=dest / outputs.thumbnail.name if outputs.thumbnail else None,
-        )
         with self.sessions.begin() as db:
             video = index_video(
                 db,
-                job=job,
+                platform=job.platform,
+                source_url=job.url,
                 info=info,
                 directory=archive.relative(self.settings.archive_root, dest),
-                outputs=final,
+                media_file=outputs.media.name,
                 media_size=media_size,
+                thumbnail_file=outputs.thumbnail.name if outputs.thumbnail else None,
             )
+            self._queue_channel_metadata(db, video)
+            if used_cookies:
+                cookie_service.record_health(db, cookie_service.OK)
             return video.id
+
+    def _queue_channel_metadata(self, db: DbSession, video: Video) -> None:
+        """First video from a channel: fetch its avatar/banner/description in the background."""
+        channel = video.channel
+        if channel is None or channel.last_checked_at is not None or channel.avatar_file:
+            return
+        if channel_service.active_expand_for_channel(db, channel.id) is not None:
+            return
+        db.add(
+            Job(
+                kind=JobKind.EXPAND,
+                url=channel_service.channel_base_url(channel),
+                platform=channel.platform,
+                quality="best",
+                priority=PRIORITY_EXPAND,
+                channel_pk=channel.id,
+                title=channel.name,
+                options={"mode": "meta", "tabs": ["videos"], "limit": 1},
+                max_attempts=1,
+            )
+        )
 
     def _check_conflict(self, job: Job, video_id: str, dest: Path) -> None:
         with self.sessions() as db:

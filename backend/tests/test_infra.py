@@ -29,6 +29,30 @@ def test_migrations_match_models(tmp_path):
         engine.dispose()
 
 
+def test_migrations_keep_foreign_key_links(tmp_path):
+    """Batch migrations rebuild tables; that must not fire ON DELETE SET NULL on children."""
+    engine = create_db_engine(tmp_path / "db.sqlite")
+    try:
+        upgrade(engine, "0001")
+        with engine.begin() as conn:
+            now = "2026-01-01 00:00:00"
+            conn.exec_driver_sql(
+                "INSERT INTO channels (id, platform, channel_id, created_at, updated_at) "
+                f"VALUES (1, 'youtube', 'UC1', '{now}', '{now}')"
+            )
+            conn.exec_driver_sql(
+                "INSERT INTO videos (platform, video_id, content_kind, channel_pk, title, "
+                "source_url, directory, media_file, media_size, archived_at) VALUES "
+                f"('youtube', 'v1', 'video', 1, 't', 'u', 'd', 'm', 1, '{now}')"
+            )
+        upgrade(engine)
+        with engine.connect() as conn:
+            assert conn.exec_driver_sql("SELECT channel_pk FROM videos").scalar() == 1
+            assert conn.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+    finally:
+        engine.dispose()
+
+
 @pytest.fixture
 def anyio_backend():
     return "asyncio"

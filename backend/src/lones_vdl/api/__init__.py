@@ -2,12 +2,32 @@
 
 from fastapi import APIRouter
 
-from lones_vdl.api import auth, events, health, jobs, system, videos
+from lones_vdl.api import (
+    auth,
+    channels,
+    collections,
+    cookies,
+    creators,
+    events,
+    health,
+    jobs,
+    settings,
+    system,
+    videos,
+)
 
 router = APIRouter(prefix="/api")
-router.include_router(health.router)
-router.include_router(auth.router)
-router.include_router(jobs.router)
-router.include_router(events.router)
-router.include_router(videos.router)
-router.include_router(system.router)
+for module in (
+    health,
+    auth,
+    jobs,
+    events,
+    videos,
+    channels,
+    creators,
+    collections,
+    cookies,
+    settings,
+    system,
+):
+    router.include_router(module.router)

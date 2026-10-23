@@ -11,9 +11,10 @@ from sqlalchemy.orm import sessionmaker
 
 from lones_vdl.config import Settings
 from lones_vdl.db import utcnow
-from lones_vdl.events import EventBus
+from lones_vdl.events import EventBus, Wakeup
 from lones_vdl.schemas import YtdlpStatus
 from lones_vdl.services import settings_store
+from lones_vdl.services.runtime import RuntimeConfig
 from lones_vdl.ytdlp import YtdlpError, YtdlpManager
 from lones_vdl.ytdlp.manager import UpdateResult
 
@@ -26,6 +27,7 @@ class YtdlpUpdater:
     def __init__(
         self,
         settings: Settings,
+        runtime: RuntimeConfig,
         manager: YtdlpManager,
         sessions: sessionmaker,
         bus: EventBus,
@@ -33,6 +35,7 @@ class YtdlpUpdater:
         on_installed=None,
     ) -> None:
         self.settings = settings
+        self.runtime = runtime
         self.manager = manager
         self.sessions = sessions
         self.bus = bus
@@ -41,6 +44,7 @@ class YtdlpUpdater:
         self.last_error: str | None = None
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
+        self._wake = Wakeup()
 
     def status(self) -> YtdlpStatus:
         with self.sessions() as db:
@@ -49,13 +53,14 @@ class YtdlpUpdater:
             managed=self.manager.managed,
             installed=self.manager.installed,
             version=self.manager.version(),
-            channel=self.settings.ytdlp_channel,
+            channel=self.runtime.current.ytdlp_channel,
             updating=self.updating,
             last_checked_at=last,
             last_error=self.last_error,
         )
 
     async def start(self) -> None:
+        self._wake.bind(asyncio.get_running_loop())
         if self.manager.managed:
             self._task = asyncio.create_task(self._loop(), name="ytdlp-updater")
 
@@ -65,12 +70,18 @@ class YtdlpUpdater:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
 
+    def reschedule(self) -> None:
+        """Re-read the interval/channel settings now. Safe from any thread."""
+        self._wake.set()
+
     async def update_now(self) -> UpdateResult:
         async with self._lock:
             self.updating = True
             self.bus.publish("ytdlp", self.status().model_dump(mode="json"))
             try:
-                result = await asyncio.to_thread(self.manager.install_or_update)
+                result = await asyncio.to_thread(
+                    self.manager.install_or_update, self.runtime.current.ytdlp_channel
+                )
                 self.last_error = None
                 return result
             except YtdlpError as exc:
@@ -85,7 +96,7 @@ class YtdlpUpdater:
                     self.on_installed()
 
     def _next_check(self) -> datetime | None:
-        interval = self.settings.ytdlp_update_interval_hours
+        interval = self.runtime.current.ytdlp_update_interval_hours
         if not self.manager.installed:
             return utcnow()
         if interval <= 0:
@@ -99,12 +110,14 @@ class YtdlpUpdater:
 
     async def _loop(self) -> None:
         while True:
+            self._wake.clear()
             when = self._next_check()
             if when is None:
-                return
+                await self._wake.wait()
+                continue
             delay = (when - utcnow()).total_seconds()
             if delay > 0:
-                await asyncio.sleep(min(delay, 3600))
+                await self._wake.wait(min(delay, 3600))
                 continue
             try:
                 await self.update_now()

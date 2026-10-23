@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     download_concurrency: int = Field(default=1, ge=1, le=8)
     download_max_attempts: int = Field(default=3, ge=1)
     default_quality: str = "best"
+    # Hours between checks of channels with auto-archive enabled (0 disables).
+    channel_watch_interval_hours: float = Field(default=6.0, ge=0)
+    # Age-restricted video used by the cookie "Test" button.
+    cookie_test_url: str = "https://www.youtube.com/watch?v=HtVdAasjOgU"
 
     # yt-dlp. Normally a managed venv under data_dir/ytdlp, kept current by the app.
     # Set ytdlp_executable to use an existing install instead (disables managed updates).

@@ -46,10 +46,12 @@ def test_download_archives_and_indexes(authed, settings):
     assert sums["media.webm"] == hashlib.sha256((item / "media.webm").read_bytes()).hexdigest()
     assert not any(settings.partial_dir.iterdir())
 
-    videos = authed.get("/api/videos").json()
-    assert len(videos) == 1
+    page = authed.get("/api/videos").json()
+    assert page["total"] == 1
+    videos = page["items"]
     assert videos[0]["video_id"] == "okokokokok1"
     assert videos[0]["channel"]["handle"] == "@fakechannel"
+    assert videos[0]["watched"] is False and videos[0]["has_thumbnail"] is True
     detail = authed.get(f"/api/videos/{done['video_pk']}").json()
     assert detail["directory"] == "youtube/okokokokok1"
     assert detail["upload_date"] == "2024-01-02"
@@ -66,7 +68,7 @@ def test_duplicates_are_rejected(authed):
 
 
 def test_rejects_unsupported_input(authed):
-    for url in ("https://vimeo.com/123", "https://www.youtube.com/playlist?list=PL1234567890"):
+    for url in ("https://vimeo.com/123", "https://www.youtube.com/feed/history", "not a url"):
         response = authed.post("/api/jobs", json={"url": url})
         assert response.status_code == 422, url
     bad_quality = authed.post(

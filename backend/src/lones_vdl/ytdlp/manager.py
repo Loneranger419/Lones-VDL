@@ -96,8 +96,11 @@ class YtdlpManager:
                 self._active -= 1
                 self._cond.notify_all()
 
-    def install_or_update(self) -> UpdateResult:
-        """Create the venv if needed and install/upgrade yt-dlp. Blocks until jobs drain."""
+    def install_or_update(self, channel: str | None = None) -> UpdateResult:
+        """Create the venv if needed and install/upgrade yt-dlp. Blocks until jobs drain.
+
+        Switching nightly → stable takes effect at the next stable release (no downgrade)."""
+        channel = channel or self.settings.ytdlp_channel
         if not self.managed:
             raise RuntimeError("yt-dlp is externally managed (LONES_VDL_YTDLP_EXECUTABLE set)")
         with self._cond:
@@ -113,7 +116,7 @@ class YtdlpManager:
             if not python.is_file():
                 self._uv([uv, "venv", "--python", sys.executable, str(self.venv_dir)])
             cmd = [uv, "pip", "install", "--python", str(python), "--upgrade", *PACKAGES]
-            if self.settings.ytdlp_channel == "nightly":
+            if channel == "nightly":
                 cmd[3:3] = ["--prerelease", "allow"]
             self._uv(cmd)
             after = self.version(refresh=True)

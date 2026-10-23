@@ -74,5 +74,26 @@ uv run --project backend lones-vdl cookies import path\to\cookies.txt --delete-s
 Get-Content -Raw path\to\cookies.txt | docker compose -f deploy/compose.yaml exec -T lones-vdl lones-vdl cookies import -
 ```
 
-Then confirm with `lones-vdl doctor --url https://www.youtube.com/watch?v=<id>`.
-Cookie values are never printed or logged. Never commit cookie files.
+Or upload through the API (`POST /api/cookies` with the file as a plain-text body); the web UI
+will use this. Importing new cookies automatically retries jobs that failed because of cookies.
+
+Then confirm with `lones-vdl doctor --url https://www.youtube.com/watch?v=<id>` or
+`POST /api/cookies/test`. Cookie values are never printed, logged, or returned by the API.
+Never commit cookie files.
+
+## API
+
+Interactive docs at `http://<host>:8080/docs`. Calls need a signed-in session (log in through
+the app in the same browser), and state-changing calls need the header `x-lones-vdl: 1`.
+Main areas:
+
+| Area | Endpoints |
+|------|-----------|
+| Downloads | `POST /api/jobs` with a video, playlist, or channel URL (`watch`, `backfill`, `tabs` for channels); list/cancel/retry/log |
+| Library | `GET /api/videos` (search, filters, sort, paging), `/continue`, `/{id}/related`, progress, watched, delete |
+| Media | `/api/videos/{id}/media` (Range), `/thumbnail`, `/subtitles/{lang}.vtt`, `/api/channels/{id}/avatar` |
+| Channels | list, details, `PATCH` watch settings, `POST /{id}/check` |
+| Creators, collections | CRUD; collections keep a user-defined order |
+| Health | `/api/system/doctor`, `/stats`, `POST /verify`, `POST /rescan`, yt-dlp status/update |
+| Settings | `GET/PATCH /api/settings` (quality, concurrency, watch interval, yt-dlp channel) |
+| Live updates | `GET /api/events` (Server-Sent Events) |

@@ -172,8 +172,16 @@ The v1 container failed on age-gated videos that worked on Windows. Root cause u
       retry/backoff/cancel/restart recovery; SSE `/api/events`; storage with atomic promote,
       sidecar, checksums; `doctor`, `cookies import`, `set-password`, `ytdlp update` CLI.
       Verified in Docker: auto-install, real yt-dlp error classification (`cookies_missing`).
-- [ ] **3. Backend features.** Playlists/channels expand, channel watch scheduler, creator hub,
-      collections, watch progress, integrity verify/rescan, cookies API, media streaming (range).
+- [x] **3. Backend features.** Done 2026-10-22. Migration `0002`. Playlist/channel URLs become
+      `expand` jobs (modes all/recent/baseline/meta; tabs videos/streams/shorts; live and
+      upcoming skipped) that queue child downloads by priority. Channel auto-archive with
+      scheduler + "check now"; channel avatar/banner. Worker lanes: downloads (runtime
+      concurrency), listing (1), maintenance (1). Library query API (search/filter/sort/page),
+      related/up next, watch progress (90% = watched), continue watching, delete (→ ignored),
+      collections, creators, media/thumbnail/subtitle streaming with Range, verify/rescan
+      (rescan also relinks lost channel links), stats, cookies API (raw-text upload, status
+      without values, test, delete, health, auto-requeue of cookie failures), runtime settings
+      API. Live-verified in Docker: channel + uploads-playlist listing, artwork, Range, verify.
 - [ ] **4. Frontend.** Design tokens + theme toggle, app shell (sidebar/bottom nav), login/setup,
       then pages in order: Downloads → Library → Watch → Channels → Home → Collections → Health →
       Settings. PWA manifest.
@@ -244,6 +252,14 @@ automated tests. Docker changes must be verified by building and running in Dock
   (cookies, worker wake-ups, events) call `db.commit()` explicitly first.
 - State-changing API requests require header `x-lones-vdl: 1` (CSRF guard).
 - Scripted file edits on Windows: always pass `encoding="utf-8"`; prefer the Edit tool.
+- Migrations run with `PRAGMA foreign_keys=OFF` (see `migrations/env.py`): batch mode rebuilds
+  tables with DROP, which would otherwise fire `ON DELETE SET NULL` on child rows. Migrations
+  that add NOT NULL columns need a `server_default` for existing rows.
+- Job pipelines (`run` → completion fields, `cleanup`) are dispatched by `Job.kind` in
+  `jobs/worker.py`; each kind belongs to a lane. Priorities live in `services/jobs.py`.
+- Code that wakes a background loop from a route uses `events.Wakeup` (thread-safe), never a
+  bare `asyncio.Event` (sync routes run in a threadpool).
+- Channel artwork lives at `<archive>/<platform>/_channels/<channel_id>/`; rescan skips `_*`.
 
 ## Frontend conventions (SvelteKit 3)
 

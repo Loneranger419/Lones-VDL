@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import time
 from datetime import timedelta
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from lones_vdl.config import Settings
 from lones_vdl.main import create_app
+from lones_vdl.services import channels as channel_service
 from lones_vdl.services import jobs as job_service
 
 FAKE_YTDLP = Path(__file__).parent / "fake_ytdlp.py"
@@ -41,6 +43,19 @@ def instant_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(job_service, "retry_delay", lambda attempt: timedelta(0))
 
 
+@pytest.fixture(autouse=True)
+def fake_images(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Channel artwork downloads never touch the network in tests."""
+    fetched: list[str] = []
+
+    def fetch(url: str) -> tuple[bytes, str]:
+        fetched.append(url)
+        return b"\xff\xd8\xff fake jpeg", "image/jpeg"
+
+    monkeypatch.setattr(channel_service, "fetch_bytes", fetch)
+    return fetched
+
+
 @pytest.fixture
 def client(settings: Settings, fake_state: Path):
     app = create_app(settings, ytdlp_command=[sys.executable, str(FAKE_YTDLP)])
@@ -69,3 +84,31 @@ def enqueue(client: TestClient, video_id: str, **extra) -> dict:
     response = client.post("/api/jobs", json={"url": f"https://youtu.be/{video_id}", **extra})
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def wait_until(predicate, timeout: float = 20, message: str = "condition"):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.05)
+    raise AssertionError(f"timed out waiting for {message}")
+
+
+def wait_idle(client: TestClient, timeout: float = 30) -> list[dict]:
+    """Wait until no job is queued or running; returns all jobs."""
+    wait_until(
+        lambda: not client.get("/api/jobs", params={"status": ["queued", "running"]}).json(),
+        timeout,
+        "the queue to drain",
+    )
+    return client.get("/api/jobs", params={"limit": 500}).json()
+
+
+def set_listings(fake_state: Path, listings: dict) -> None:
+    (fake_state / "listings.json").write_text(json.dumps(listings), encoding="utf-8")
+
+
+def services(client: TestClient):
+    return client.app.state.services

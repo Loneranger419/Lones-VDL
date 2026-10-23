@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import uuid
 from collections import deque
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -39,6 +40,9 @@ PROGRESS_TEMPLATE = (
     )
     + "|%(info.format_id)s"
 )
+
+# yt-dlp: "This channel does not have a streams tab".
+_MISSING_TAB = "does not have a"
 
 # Containers tried in order when merging video+audio: browser-playable first, no re-encode.
 MERGE_FORMATS = "webm/mp4/mkv"
@@ -243,6 +247,9 @@ class YtdlpRunner:
                         cancel.attach(None)
                     if proc.poll() is None:
                         _kill_tree(proc)
+                    for pipe in (proc.stdout, proc.stderr):
+                        if pipe is not None and pipe is not out_handle:
+                            pipe.close()
             finally:
                 if out_handle is not None:
                     out_handle.close()
@@ -301,6 +308,39 @@ class YtdlpRunner:
         if not isinstance(info, dict) or not info.get("id"):
             raise YtdlpError(ErrorKind.UNKNOWN, "metadata missing id")
         return info, info_path
+
+    def list_entries(
+        self,
+        url: str,
+        *,
+        workdir: Path,
+        limit: int | None = None,
+        log: TextIO | None = None,
+        cancel: CancelToken | None = None,
+    ) -> dict[str, Any] | None:
+        """Flat-list a playlist or channel tab (no per-video requests).
+
+        Returns the playlist JSON (with ``entries``), or None if the tab does not exist.
+        """
+        workdir.mkdir(parents=True, exist_ok=True)
+        out = workdir / f"listing-{uuid.uuid4().hex}.json"
+        args = ["--flat-playlist", "--dump-single-json"]
+        if limit:
+            args += ["--playlist-end", str(limit)]
+        try:
+            result = self.run([*args, url], log=log, cancel=cancel, stdout_file=out)
+            if result.returncode != 0:
+                if _MISSING_TAB in result.output.lower():
+                    return None
+                self._check(result)
+            data = json.loads(out.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise YtdlpError(ErrorKind.UNKNOWN, f"unreadable listing: {exc}") from exc
+        finally:
+            out.unlink(missing_ok=True)
+        if not isinstance(data, dict):
+            raise YtdlpError(ErrorKind.UNKNOWN, "listing is not an object")
+        return data
 
     def download(
         self,
