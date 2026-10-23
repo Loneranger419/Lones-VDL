@@ -191,7 +191,12 @@ Design consequences:
 - Cookies are **required for all YouTube downloads**, not just age-gated ones. Missing or failing
   cookies must be a loud, top-level status in the UI, and jobs should fail fast with that reason.
 - Browser exporters produce **full-browser jars** (banking, shopping, AI sites). Import must keep
-  only allowed domains (`youtube.com`, `google.com`; `twitch.tv` later) and discard the rest.
+  only allowed domains and discard the rest. **`youtube.com` alone is sufficient** (verified with
+  an age-restricted download); do not keep `google.com` cookies (Gmail/Drive/etc.). `twitch.tv`
+  later.
+- v1's filter treated `#HttpOnly_` rows as comments and dropped YouTube's login cookies.
+- Current tool: `scripts/cookie_filter.py` (stdlib only, tested). Move its pure functions into
+  the backend cookie import service in Phase 2/3.
 - Some exporters write Chrome/WebKit timestamps (µs since 1601) instead of Unix seconds. Import
   must normalize expiry so status/expiry reporting is correct.
 - yt-dlp writes cookies back to its `--cookies` file; the app owns that file, so that's fine,
