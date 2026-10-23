@@ -223,6 +223,11 @@ and reported no bugs. Next step: **Phase 5**, but start it only after the user a
 - Autoplay on arrival at the Watch page is untested in a real browser (headless blocks it).
 - Video.js 10 is new (10.0.1, pinned). Consider upgrading after it matures; only
   `player.svelte` uses it.
+- **Chapters and key moments.** Import chapters that creators put in a video's description or
+  metadata (yt-dlp exposes them as `chapters` in `metadata.json`). Show them as a clickable list on
+  the Watch page and as markers on the player's timeline. Also import "most replayed" / popular
+  sections when yt-dlp or the video data provides them, and show them the same way. Keep this
+  per-video and optional: videos without chapters must work as they do now.
 
 **Local test environment (Windows):**
 
