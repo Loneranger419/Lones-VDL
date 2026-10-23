@@ -22,7 +22,7 @@ Runs as a Docker container on a headless Linux VM; developed on Windows.
 | Jobs | Durable job table in SQLite + in-process async worker + scheduler (channel watch) |
 | Live updates | Server-Sent Events (download progress, job state) |
 | Downloader | yt-dlp as a **subprocess** (killable, JSON progress template), in its own updatable venv |
-| YouTube anti-bot | Deno (JS challenges) + `bgutil-ytdlp-pot-provider` plugin and sidecar (PO tokens) |
+| YouTube anti-bot | Cookies (required) + Deno/yt-dlp-ejs (JS challenges); bgutil PO-token sidecar optional |
 | Media | FFmpeg/ffprobe; preserve originals; remux-only derivatives |
 | Frontend | SvelteKit (adapter-static, SPA) + TypeScript + Tailwind + shadcn-svelte |
 | Data fetching | TanStack Query (Svelte) + client/types generated from the backend OpenAPI spec |
@@ -158,9 +158,7 @@ The v1 container failed on age-gated videos that worked on Windows. Root cause u
 
 ## Phases
 
-- [ ] **0. Diagnose v1 Docker failure.** Build the current image in Docker Desktop. Export fresh
-      cookies (private window, age-verified account). Run `yt-dlp -v` on an age-restricted video
-      inside the container and on Windows with the same cookies. Record findings here.
+- [x] **0. Diagnose v1 Docker failure.** Done 2026-10-22 — see "Phase 0 findings" below.
 - [ ] **1. Skeleton.** Move v1 to the `v1` branch; remove v1 code. Create layout above, uv project,
       SvelteKit app, ruff/pytest/svelte-check, `scripts/check.*`, Dockerfile + compose files.
       Image builds and serves a placeholder page in Docker Desktop.
@@ -174,6 +172,32 @@ The v1 container failed on age-gated videos that worked on Windows. Root cause u
 - [ ] **5. Deploy.** Compose on the Linux VM with CIFS archive mount; verify age-gated download
       with cookies; document the runbook in `README.md`.
 - [ ] **6. Twitch.** `platforms/twitch.py`, VODs/clips, Twitch sections in the UI.
+
+### Phase 0 findings (2026-10-22)
+
+Tested the v1 image (yt-dlp 2026.10.21, Deno 2.9.7, yt-dlp-ejs 0.8.0, no PO-token provider) in
+Docker Desktop against Windows yt-dlp 2026.08.19 / 2026.03.17, same home IP.
+
+- **Without cookies, everything fails on both OSes** — even public videos get
+  "Sign in to confirm you're not a bot" (LOGIN_REQUIRED). Not a Linux/Docker problem.
+- **With valid cookies, Docker works fully:** public and age-restricted videos resolve, and a
+  real download of an age-restricted video (1080p AV1 + Opus, merged, ffprobe OK) succeeded
+  with no 403s. PO tokens were not needed.
+- Likely v1 causes: missing/expired/rotated cookies in the container, and/or the VM running an
+  image built before Deno + yt-dlp-ejs were added (commit `7abc000`).
+
+Design consequences:
+
+- Cookies are **required for all YouTube downloads**, not just age-gated ones. Missing or failing
+  cookies must be a loud, top-level status in the UI, and jobs should fail fast with that reason.
+- Browser exporters produce **full-browser jars** (banking, shopping, AI sites). Import must keep
+  only allowed domains (`youtube.com`, `google.com`; `twitch.tv` later) and discard the rest.
+- Some exporters write Chrome/WebKit timestamps (µs since 1601) instead of Unix seconds. Import
+  must normalize expiry so status/expiry reporting is correct.
+- yt-dlp writes cookies back to its `--cookies` file; the app owns that file, so that's fine,
+  but never point yt-dlp at an operator's original export.
+- Deno + yt-dlp-ejs are essential. The bgutil PO-token sidecar is **optional** (add to compose as
+  an opt-in profile; enable if 403s/bot checks return with cookies).
 
 ## Verification
 
