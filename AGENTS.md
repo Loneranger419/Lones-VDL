@@ -194,7 +194,7 @@ The v1 container failed on age-gated videos that worked on Windows. Root cause u
 
 ### Resume here (state at end of Phase 4, 2026-10-22)
 
-Everything through Phase 4 is committed on branch `v2` (`c9bdccb`). The user has tried the UI
+Everything through Phase 4 is committed on `main` (originally `c9bdccb` on the old `v2` branch, now deleted). The user has tried the UI
 and reported no bugs. Next step: **Phase 5**, but start it only after the user asks.
 
 **Phase 5 plan:**
