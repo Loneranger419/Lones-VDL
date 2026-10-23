@@ -25,6 +25,7 @@ if (-not (Test-Path (Join-Path $root "frontend\node_modules"))) {
     Invoke-Step "frontend: npm ci" frontend { npm ci }
 }
 Invoke-Step "frontend: prettier" frontend { npm run lint }
+Invoke-Step "frontend: api types" frontend { npm run api:types }
 Invoke-Step "frontend: svelte-check" frontend { npm run check }
 Invoke-Step "frontend: build" frontend { npm run build }
 

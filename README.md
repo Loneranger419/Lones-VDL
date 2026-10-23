@@ -42,6 +42,30 @@ powershell -File scripts/check.ps1
 
 Runs ruff, pytest, prettier, svelte-check, and the frontend build.
 
+After changing a backend route or schema, regenerate the frontend API client (the OpenAPI
+snapshot test fails until you do):
+
+```powershell
+cd frontend; npm run api
+```
+
+## Using the app
+
+| Page | What it's for |
+|------|---------------|
+| Home | Continue watching, downloads in progress, recently archived, channels |
+| Library | Everything archived: search (top bar), kind / progress / channel filters, sort |
+| Watch | Player with captions and resume; marks a video watched at 90%; up next with autoplay; collection playlists via `?collection=` |
+| Downloads | Paste a video, playlist, or channel link; live progress, cancel, retry, full yt-dlp log per job |
+| Channels | Per-channel auto-archive (what to include, quality, "Check now"), creator linking; Creators tab groups channels |
+| Collections | Your own ordered playlists |
+| Health | YouTube cookies (drop a `cookies.txt`, test it), yt-dlp version and update, storage, verify / rescan, diagnostics |
+| Settings | Theme, default quality, simultaneous downloads, check intervals, password |
+
+On a phone the sidebar becomes a bottom bar. The app can be installed to a home screen, but
+browsers only allow that (and the offline app shell) over HTTPS or on `localhost`; over plain
+`http://<vm-ip>:8080` everything else works, there is just no install prompt.
+
 ## Test the production image locally
 
 ```powershell

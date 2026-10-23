@@ -14,6 +14,7 @@ def dist(tmp_path: Path) -> Path:
     (root / "_app" / "immutable").mkdir(parents=True)
     (root / "index.html").write_text("<html>spa</html>")
     (root / "favicon.png").write_bytes(b"png")
+    (root / "manifest.webmanifest").write_text("{}")
     (root / "_app" / "immutable" / "app.abc123.js").write_text("js")
     (tmp_path / "secret.txt").write_text("outside")
     return root
@@ -47,6 +48,13 @@ def test_spa_serves_files_and_falls_back_to_index(tmp_path, dist):
 def test_spa_caches_immutable_assets(tmp_path, dist):
     response = client_for(tmp_path, dist).get("/_app/immutable/app.abc123.js")
     assert "immutable" in response.headers["cache-control"]
+
+
+def test_spa_revalidates_other_files_and_types_the_manifest(tmp_path, dist):
+    client = client_for(tmp_path, dist)
+    assert client.get("/favicon.png").headers["cache-control"] == "no-cache"
+    manifest = client.get("/manifest.webmanifest")
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
 
 
 def test_unknown_api_route_is_404_not_index(tmp_path, dist):

@@ -116,6 +116,26 @@ def _ytdlp_update(args: argparse.Namespace) -> int:
     return 0
 
 
+def openapi_json() -> str:
+    """The API schema the frontend client is generated from (deterministic output)."""
+    import json
+
+    from lones_vdl.config import Settings
+    from lones_vdl.main import create_app
+
+    app = create_app(Settings(_env_file=None, frontend_dist=Path("/nonexistent")))
+    return json.dumps(app.openapi(), indent=2, ensure_ascii=False) + "\n"
+
+
+def _openapi(args: argparse.Namespace) -> int:
+    text = openapi_json()
+    if args.output:
+        Path(args.output).write_text(text, encoding="utf-8", newline="\n")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
 def _make_migration(args: argparse.Namespace) -> int:
     from lones_vdl.db.migrate import make_migration
 
@@ -169,6 +189,10 @@ def main(argv: list[str] | None = None) -> int:
     ytdlp_commands.add_parser("update", help="install or upgrade yt-dlp").set_defaults(
         func=_ytdlp_update
     )
+
+    openapi = commands.add_parser("openapi", help="print the API schema (for the frontend)")
+    openapi.add_argument("-o", "--output", help="write to this file instead of stdout")
+    openapi.set_defaults(func=_openapi)
 
     db = commands.add_parser("db", help="database maintenance (development)")
     db_commands = db.add_subparsers(dest="db_command", required=True)

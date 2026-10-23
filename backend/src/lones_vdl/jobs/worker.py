@@ -219,6 +219,10 @@ class Worker:
         with self.sessions() as db:
             job = db.get_one(Job, job_id)
         message = MESSAGES[kind]
+        if kind == ErrorKind.COOKIES_INVALID:
+            # Before the job's new status, so whoever reacts to it sees the cookie state too.
+            with self.sessions.begin() as db:
+                cookie_service.record_health(db, cookie_service.INVALID, message)
         if kind in RETRYABLE and job.attempts < job.max_attempts:
             self.reporter.update(
                 job_id,
@@ -241,8 +245,5 @@ class Worker:
             if job.parent_pk is not None and job.video_id and kind in IGNORE_CHILD_ON:
                 with self.sessions.begin() as db:
                     channel_service.ignore(db, job.platform, job.video_id, IGNORE_CHILD_ON[kind])
-        if kind == ErrorKind.COOKIES_INVALID:
-            with self.sessions.begin() as db:
-                cookie_service.record_health(db, cookie_service.INVALID, message)
         lines = error_lines(detail, limit=1) or detail.strip().splitlines()[-1:]
         logger.warning("job %s %s: %s", job_id, kind, lines[0][:300] if lines else "")

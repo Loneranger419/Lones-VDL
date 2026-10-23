@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from lones_vdl.api.deps import DbDep, ServicesDep, client_ip
-from lones_vdl.schemas import AuthStatus, PasswordRequest
+from lones_vdl.schemas import AuthStatus, PasswordChange, PasswordRequest
 from lones_vdl.services import auth
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -83,3 +83,34 @@ def logout(request: Request, response: Response, db: DbDep) -> None:
     auth.delete_session(db, request.cookies.get(auth.SESSION_COOKIE))
     db.commit()
     response.delete_cookie(auth.SESSION_COOKIE, path="/")
+
+
+@router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    body: PasswordChange, request: Request, response: Response, db: DbDep, services: ServicesDep
+) -> None:
+    """Change the password (signs out every other device; this one stays signed in)."""
+    if (
+        auth.get_session(
+            db,
+            request.cookies.get(auth.SESSION_COOKIE),
+            session_days=services.settings.session_days,
+        )
+        is None
+    ):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "not signed in")
+    if not auth.verify_password(db, body.current_password):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "current password is wrong")
+    try:
+        auth.set_password(db, body.new_password)
+    except auth.PasswordPolicyError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    token = auth.create_session(
+        db,
+        remember=True,
+        session_days=services.settings.session_days,
+        user_agent=request.headers.get("user-agent"),
+        ip=client_ip(request),
+    )
+    db.commit()
+    _set_cookie(response, token, remember=True, services=services)

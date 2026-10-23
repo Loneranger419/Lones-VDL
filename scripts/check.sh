@@ -15,6 +15,7 @@ step "backend: pytest";      uv run pytest -q
 cd "$root/frontend"
 if [ ! -d node_modules ]; then step "frontend: npm ci"; npm ci; fi
 step "frontend: prettier";     npm run lint
+step "frontend: api types";    npm run api:types
 step "frontend: svelte-check"; npm run check
 step "frontend: build";        npm run build
 

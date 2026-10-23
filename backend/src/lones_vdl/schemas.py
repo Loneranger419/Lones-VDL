@@ -252,6 +252,11 @@ class PasswordRequest(BaseModel):
     remember: bool = True
 
 
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=1, max_length=1024)
+
+
 class CheckOut(BaseModel):
     name: str
     status: str  # ok | warn | fail

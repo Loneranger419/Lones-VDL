@@ -92,3 +92,22 @@ def test_throttle_backoff_grows_and_resets():
     assert first is not None and second is not None and second > first
     throttle.success("ip")
     assert throttle.retry_after("ip") is None
+
+
+def test_change_password_keeps_this_device_signed_in(authed):
+    wrong = authed.post(
+        "/api/auth/password", json={"current_password": "nope", "new_password": "another pass"}
+    )
+    assert wrong.status_code == 403
+    short = authed.post(
+        "/api/auth/password", json={"current_password": PASSWORD, "new_password": "short"}
+    )
+    assert short.status_code == 422
+    ok = authed.post(
+        "/api/auth/password", json={"current_password": PASSWORD, "new_password": "another pass"}
+    )
+    assert ok.status_code == 204
+    assert authed.get("/api/auth/status").json()["authenticated"] is True
+    authed.post("/api/auth/logout")
+    assert authed.post("/api/auth/login", json={"password": PASSWORD}).status_code == 401
+    assert authed.post("/api/auth/login", json={"password": "another pass"}).status_code == 204

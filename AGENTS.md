@@ -26,7 +26,7 @@ Runs as a Docker container on a headless Linux VM; developed on Windows.
 | Media | FFmpeg/ffprobe; preserve originals; remux-only derivatives |
 | Frontend | SvelteKit (adapter-static, SPA) + TypeScript + Tailwind + shadcn-svelte |
 | Data fetching | TanStack Query (Svelte) + client/types generated from the backend OpenAPI spec |
-| Player | Vidstack |
+| Player | Video.js 10 (`@videojs/html`, packaged video skin), isolated in `player.svelte` |
 | Auth | Single admin password → HTTP-only session cookie (no IP allowlists, no bearer tokens in UI) |
 | Theme | Dark-first with dark/light/system toggle; **blue** primary, sparing red accents |
 | Existing data | None kept — fresh archive layout and DB |
@@ -105,7 +105,7 @@ scripts/
 ## Features (v2 scope)
 
 - **Library:** grid with search, filters (platform, channel, kind, watched state), sort.
-- **Watch:** Vidstack player, captions, resume from saved position, auto-mark watched (~90%),
+- **Watch:** Video.js player, captions, resume from saved position, auto-mark watched (~90%),
   up next (same channel / collection), related via creator hub.
 - **Watch progress & markers:** per-video position + watched flag; "Continue watching" on Home.
 - **Collections:** in-app playlists, user-ordered, independent of YouTube playlists.
@@ -182,9 +182,12 @@ The v1 container failed on age-gated videos that worked on Windows. Root cause u
       (rescan also relinks lost channel links), stats, cookies API (raw-text upload, status
       without values, test, delete, health, auto-requeue of cookie failures), runtime settings
       API. Live-verified in Docker: channel + uploads-playlist listing, artwork, Range, verify.
-- [ ] **4. Frontend.** Design tokens + theme toggle, app shell (sidebar/bottom nav), login/setup,
-      then pages in order: Downloads → Library → Watch → Channels → Home → Collections → Health →
-      Settings. PWA manifest.
+- [x] **4. Frontend.** Done 2026-10-22. All pages (Home, Library, Watch, Channels/Creators,
+      Collections, Downloads, Health, Settings, Login/setup), sidebar + phone bottom nav, dark/light
+      theme, live SSE updates, OpenAPI-generated client, PWA manifest + icons + service worker.
+      Vidstack turned out to be deprecated (security-only until 2028); switched to Video.js 10.
+      Verified in Docker with headless Edge: pages at desktop/phone widths, playback progress
+      saving, resume, auto-watched at the end, collections, add dialog.
 - [ ] **5. Deploy.** Compose on the Linux VM with CIFS archive mount; verify age-gated download
       with cookies; document the runbook in `README.md`.
 - [ ] **6. Twitch.** `platforms/twitch.py`, VODs/clips, Twitch sections in the UI.
@@ -270,6 +273,19 @@ automated tests. Docker changes must be verified by building and running in Dock
 - Add shadcn-svelte components with `npx shadcn-svelte@1.7.0 add <name>`; run
   `npx svelte-kit sync` first on a fresh checkout (it generates `node_modules/$app/tsconfig`).
 - Svelte 5 runes only (`$state`, `$derived`, `$effect`, `$props`). Formatting is prettier.
+- API access only through `#lib/api/client.js` (`api` + `call()`) and the query factories in
+  `#lib/api/queries.js`. After backend schema changes run `npm run api` (regenerates
+  `openapi.json` + `schema.d.ts`; a backend test fails if the snapshot is stale). Request
+  bodies with server-side defaults are typed as required; wrap partial updates in `Partial<>`.
+- Live updates: `#lib/api/events.svelte.js` patches job lists and invalidates query keys;
+  download progress lives in `live.progress`, not in the query cache.
+- Filters and tabs live in the URL (`goto(url, { replace: true, reset: false })`; SvelteKit 3
+  renamed `replaceState`/`noScroll`/`keepFocus`).
+- The player library is only referenced in `#lib/components/app/player.svelte`.
+- Service worker: `src/service-worker/index.ts` with its own `tsconfig.json` (uses
+  `$app/manifest`, `$app/env`, `$app/service-worker`); it never caches `/api/`.
+- PWA icons in `static/icons/` were rendered from the logo SVG; keep them in sync with
+  `logo.svelte` and `static/favicon.svg` if the logo changes.
 
 ## Out of scope (until decided otherwise)
 
