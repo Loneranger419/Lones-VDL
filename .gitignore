@@ -63,3 +63,6 @@ Thumbs.db
 .docker-cache/
 deploy/.env
 !deploy/.env.example
+
+# Local planning and runbook notes (not part of the repo)
+docs/
