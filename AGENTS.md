@@ -197,8 +197,73 @@ The v1 container failed on age-gated videos that worked on Windows. Root cause u
 Everything through Phase 4 is committed on `main` (originally `c9bdccb` on the old `v2` branch, now deleted). The user has tried the UI
 and reported no bugs. Next step: **Phase 5**, but start it only after the user asks.
 
+**Top priority after the LXC is running: the YouTube download policy below.** Phase 5 is what
+gets the LXC running, so the policy is the first feature work once Phase 5 is verified.
+
+**YouTube download policy (user-defined, source: `YOUTUBE_DOWNLOAD_POLICY.md` in the repo root,
+untracked by choice; the user owns that file).** Goal: reduce unnecessary account exposure and
+rate-limit trouble. No setting guarantees protection from account restrictions.
+
+Agreed behaviour:
+
+- One video at a time. No concurrent video downloads. Concurrent media fragments = 1.
+- Try **without cookies first**. Use the age-verified alternate account only when authentication
+  is genuinely required.
+- The **personal account** is used only when necessary (e.g. members-only content), and only after
+  **explicit manual approval** in the UI. Never silently escalate to personal credentials.
+- At least 15 s between authentication attempts. Configurable 15–30 s delay between videos.
+- Advance to another account only when the failure clearly says access or authorization is needed.
+  Never switch identities to get around rate limits.
+- Keep queue and per-account usage counters in the app, separate from yt-dlp's internal retries.
+- Default limits (adjustable, operational starting points, not known-safe thresholds): 50 videos
+  per day total, 10 authenticated per day, 1 concurrent video, 1–2 transient retries on the same
+  session, ~2 s between extraction requests. The queue resumes the next day without intervention.
+
+Failure handling:
+
+| Failure | Behaviour |
+|---|---|
+| Public content succeeds anonymously | Finish without account cookies |
+| Age-restricted / login required | Try the alternate age-verified account |
+| Members-only | Personal account, only after explicit approval |
+| Private | Only try an account known to have access |
+| HTTP 429 / throttling / suspected rate limit | Pause and back off. Do **not** rotate accounts |
+| Deleted / unavailable | Mark unavailable, stop retrying |
+| Transient network failure | Limited retries on the same session |
+
+Security: treat auth cookies as secrets; never log them or expose them in the UI. Separate
+download failures from access failures before deciding to authenticate. Account bans and IP blocks
+are separate risks that no policy removes.
+
+**Conflicts with decisions already recorded above. Resolve before implementing:**
+
+1. The locked decision and the Phase 0 finding say cookies are **required for every YouTube
+   download**. The policy says **try anonymously first**. Phase 0 showed that without cookies even
+   public videos get "Sign in to confirm you're not a bot", so the anonymous attempt will often
+   fail. Is the anonymous-first step only for when the failure is clearly not a bot check?
+2. Downloads currently run at a configurable concurrency (1–8, Settings). The policy fixes it at 1
+   for videos. Should the Settings option go away, or stay for other lanes?
+3. The app supports one cookie jar. The policy needs two: an age-verified alternate account and a
+   personal account used only with approval. That means a multi-account model, with per-account
+   storage, counters, and approval state.
+4. Daily limits and the 15–30 s delay are not in Settings yet. Decide which should be editable in
+   the UI.
+
 **Phase 5 plan:**
 
+0. **Private network first (Headscale + WireGuard).** Plan in `docs/headscale-setup.md`, which is
+   git-ignored and stays local. Summary:
+   - A WireGuard VPN is the only way in from outside the home network. It's the one port opened
+     on the router, and nothing else is exposed.
+   - Headscale runs in a Proxmox LXC on the home LAN, on Debian 13. It is the control server for a
+     Tailscale mesh: it issues device keys and keeps peers up to date. It is not the VPN itself.
+   - Its HTTPS name resolves only to a private LAN address. Caddy gets the certificate through
+     Cloudflare DNS validation, so the server never needs to be reachable from the internet.
+   - A web UI (Headplane is the candidate; verify it's maintained) manages users and devices.
+   - Order: WireGuard first (phones must be on it before they can join), then the LXC, then devices.
+   - Open items are listed in `docs/headscale-setup.md` (router model, Proxmox version, hostname,
+     DNS override, VPN subnet, Cloudflare token, users, backups).
+   - `docs/vm-setup.md` still describes hosted Tailscale and needs rewriting for this plan.
 1. Start from `deploy/compose.yaml` + `deploy/.env.example`. Set `LONES_VDL_HOST_ARCHIVE` to the
    CIFS mount, and `PUID`/`PGID` to the share owner.
 2. Reuse `deploy/vm/fix-vm-mount-boot.sh` (CIFS mount retries at boot) and `host-status.sh`
