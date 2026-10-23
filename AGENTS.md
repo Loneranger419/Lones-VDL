@@ -3,7 +3,7 @@
 Project-specific instructions and rewrite plan for humans and coding agents.
 Follow global user rules; do not duplicate them here.
 
-> **Status:** v2 clean rewrite in progress. v1 is preserved on the `v1` branch.
+> **Status:** v2 rewrite, Phases 0–4 done; Phase 5 (VM deploy) next — see "Resume here". v1 is preserved on the `v1` branch.
 > This file supersedes `docs/architecture.md` (v1), which is removed in Phase 1.
 
 ## Purpose
@@ -191,6 +191,56 @@ The v1 container failed on age-gated videos that worked on Windows. Root cause u
 - [ ] **5. Deploy.** Compose on the Linux VM with CIFS archive mount; verify age-gated download
       with cookies; document the runbook in `README.md`.
 - [ ] **6. Twitch.** `platforms/twitch.py`, VODs/clips, Twitch sections in the UI.
+
+### Resume here (state at end of Phase 4, 2026-10-22)
+
+Everything through Phase 4 is committed on branch `v2` (`c9bdccb`). The user has tried the UI
+and reported no bugs. Next step: **Phase 5**, but start it only after the user asks.
+
+**Phase 5 plan:**
+
+1. Start from `deploy/compose.yaml` + `deploy/.env.example`. Set `LONES_VDL_HOST_ARCHIVE` to the
+   CIFS mount, and `PUID`/`PGID` to the share owner.
+2. Reuse `deploy/vm/fix-vm-mount-boot.sh` (CIFS mount retries at boot) and `host-status.sh`
+   (status report). Review them; they come from v1.
+3. Promote the same Git revision to the VM. Import private-window cookies via Health. Verify:
+   - an age-gated download;
+   - Range playback from the share;
+   - verify/rescan on CIFS.
+4. **HTTPS for PWA install:** service workers and "install app" need a secure context. Plain
+   `http://<vm-ip>:8080` works but cannot be installed. The user has Tailscale on Windows, so
+   `tailscale serve` (or a reverse proxy) is the likely route. Ask before choosing.
+5. Write the VM runbook in `README.md`: first-run password, cookies, updates, backups of
+   `<DATA_DIR>`.
+
+**Backlog (agreed or noticed, not scheduled):**
+
+- Per-download "compatible" H.264 option (remux/derivative, never touching the original).
+- Platform filter in the library and search. The API has no `platform` query param yet; add it
+  with Twitch at the latest.
+- `npm audit`: 5 low-severity warnings from an old `@sveltejs/kit`/`cookie` nested inside
+  `bits-ui`. That code is server-side only and unused by the SPA. Recheck when `bits-ui` updates.
+- Autoplay on arrival at the Watch page is untested in a real browser (headless blocks it).
+- Video.js 10 is new (10.0.1, pinned). Consider upgrading after it matures; only
+  `player.svelte` uses it.
+
+**Local test environment (Windows):**
+
+- Docker test container:
+  - Run `docker compose -f deploy/compose.yaml -f deploy/compose.dev.yaml up -d --build`.
+  - Open http://localhost:8080. The dev password is `docker-test-pass`.
+  - It holds two archived test videos (ids 1, 2) and real cookies in its data volume.
+  - The user prefers it left running.
+- PowerShell sessions need a PATH refresh before `scripts/check.ps1` (uv is installed via
+  winget): `$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
+  [Environment]::GetEnvironmentVariable('Path','User')`.
+- No Playwright here. UI checks drive headless Edge over the DevTools protocol, with Python
+  `websocket-client` (already installed system-wide):
+  - Start with `msedge --headless=new --remote-debugging-port=9333 --user-data-dir=<tmp>`.
+  - Connect with `suppress_origin=True`.
+  - Open a fresh tab per page via `PUT /json/new`. Reusing one tab across navigations stalled.
+  - Log in through `POST /api/auth/login`, then `Network.setCookie`.
+  - In Git Bash, set `MSYS_NO_PATHCONV=1` so `/library`-style arguments aren't rewritten.
 
 ### Phase 0 findings (2026-10-22)
 
