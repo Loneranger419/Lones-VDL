@@ -45,7 +45,8 @@
 	const params = $derived(page.url.searchParams);
 	const filters = $derived({
 		q: params.get('q') || undefined,
-		kind: (params.get('kind') || undefined) as VideoQuery['kind'],
+		// Absent: everything but shorts. 'all': everything.
+		kind: params.get('kind') || undefined,
 		watch: (params.get('watch') || undefined) as VideoQuery['watch'],
 		channel: params.get('channel') ? Number(params.get('channel')) : undefined,
 		integrity: (params.get('integrity') || undefined) as VideoQuery['integrity'],
@@ -79,7 +80,15 @@
 		goto(`/library${next.size ? `?${next}` : ''}`, { replace: true, reset: false });
 	}
 
-	const videos = createInfiniteQuery(() => queries.videoPages(filters));
+	const videoQuery = $derived({
+		...filters,
+		// Shorts never carry the tag filter.
+		preset: filters.kind === 'short' ? 'none' : filters.preset,
+		kind: filters.kind && filters.kind !== 'all' ? (filters.kind as VideoQuery['kind']) : undefined,
+		// A search looks through shorts too; browsing leaves them out unless a kind is chosen.
+		exclude_kind: filters.kind || filters.q ? undefined : ['short' as const]
+	});
+	const videos = createInfiniteQuery(() => queries.videoPages(videoQuery));
 	const channels = createQuery(() => queries.channels());
 	const presets = createQuery(() => queries.presets());
 
@@ -128,9 +137,10 @@
 		type="single"
 		variant="outline"
 		size="sm"
-		value={filters.kind ?? 'all'}
-		onValueChange={(v) => setParam('kind', v, 'all')}
+		value={filters.kind ?? 'default'}
+		onValueChange={(v) => setParam('kind', v, 'default')}
 	>
+		<ToggleGroup.Item value="default">No shorts</ToggleGroup.Item>
 		<ToggleGroup.Item value="all">All</ToggleGroup.Item>
 		<ToggleGroup.Item value="video">Videos</ToggleGroup.Item>
 		<ToggleGroup.Item value="stream">Streams</ToggleGroup.Item>

@@ -9,7 +9,8 @@
 	let {
 		video,
 		showChannel = true,
-		href = `/watch/${video.id}`,
+		// A short opens in the scrolling shorts feed, everything else on the Watch page.
+		href = video.content_kind === 'short' ? `/shorts?start=${video.id}` : `/watch/${video.id}`,
 		compact = false
 	}: { video: Video; showChannel?: boolean; href?: string; compact?: boolean } = $props();
 

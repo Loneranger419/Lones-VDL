@@ -7,6 +7,7 @@
 	import { ui } from '#lib/ui-state.svelte.js';
 	import VideoCard from '#lib/components/app/video-card.svelte';
 	import VideoGrid from '#lib/components/app/video-grid.svelte';
+	import ShortCard from '#lib/components/app/short-card.svelte';
 	import ChannelAvatar from '#lib/components/app/channel-avatar.svelte';
 	import Logo from '#lib/components/app/logo.svelte';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -16,18 +17,26 @@
 
 	const continueWatching = createQuery(() => queries.continueWatching());
 	const recent = createQuery(() =>
-		queries.videos({ sort: 'archived_desc', limit: 16, preset: 'default' })
+		queries.videos({ sort: 'archived_desc', limit: 16, preset: 'default', exclude_kind: ['short'] })
 	);
 	// Shown as 4 rows; the grid decides how many columns fit, so ask for enough to fill them.
 	const uploaded = createQuery(() =>
-		queries.videos({ sort: 'uploaded_desc', limit: 48, preset: 'default' })
+		queries.videos({ sort: 'uploaded_desc', limit: 48, preset: 'default', exclude_kind: ['short'] })
+	);
+	const shorts = createQuery(() =>
+		queries.videos({ sort: 'uploaded_desc', limit: 16, kind: 'short' })
 	);
 	const channels = createQuery(() => queries.channels());
 	const active = createQuery(() => queries.jobs({ status: ['running'], limit: 5 }));
 	const counts = createQuery(() => queries.jobCounts());
 
 	const queued = $derived((counts.data?.queued ?? 0) + (counts.data?.running ?? 0));
-	const empty = $derived(recent.isSuccess && recent.data.total + recent.data.hidden === 0);
+	// Shorts are left out of every other row, so a library of only shorts still has content.
+	const empty = $derived(
+		recent.isSuccess &&
+			shorts.isSuccess &&
+			recent.data.total + recent.data.hidden + shorts.data.total + shorts.data.hidden === 0
+	);
 	const topChannels = $derived(
 		[...(channels.data ?? [])].sort((a, b) => b.video_count - a.video_count).slice(0, 12)
 	);
@@ -135,6 +144,21 @@
 				</div>
 			{/if}
 		</section>
+
+		{#if shorts.data?.items.length}
+			<section>
+				{@render heading('Recently uploaded shorts', '/shorts')}
+				<div
+					class="-mx-4 flex snap-x [scrollbar-width:thin] gap-3 overflow-x-auto px-4 pb-2 md:mx-0 md:px-0"
+				>
+					{#each shorts.data.items as video (video.id)}
+						<div class="w-32 shrink-0 snap-start sm:w-36">
+							<ShortCard {video} />
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
 
 		<section>
 			{@render heading('Recently uploaded', '/library')}

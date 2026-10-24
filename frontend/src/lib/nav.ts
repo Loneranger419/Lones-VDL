@@ -2,6 +2,7 @@ import type { Component } from 'svelte';
 import HouseIcon from '@lucide/svelte/icons/house';
 import LibraryIcon from '@lucide/svelte/icons/library-big';
 import DownloadIcon from '@lucide/svelte/icons/download';
+import SmartphoneIcon from '@lucide/svelte/icons/smartphone';
 import TvIcon from '@lucide/svelte/icons/tv';
 import ListVideoIcon from '@lucide/svelte/icons/list-video';
 import ActivityIcon from '@lucide/svelte/icons/activity';
@@ -19,6 +20,7 @@ export type NavItem = {
 export const mainNav: NavItem[] = [
 	{ href: '/', label: 'Home', icon: HouseIcon, mobile: true },
 	{ href: '/library', label: 'Library', icon: LibraryIcon, mobile: true },
+	{ href: '/shorts', label: 'Shorts', icon: SmartphoneIcon },
 	{ href: '/downloads', label: 'Downloads', icon: DownloadIcon, mobile: true },
 	{ href: '/channels', label: 'Channels', icon: TvIcon, mobile: true, also: ['/creators'] },
 	{ href: '/collections', label: 'Collections', icon: ListVideoIcon }

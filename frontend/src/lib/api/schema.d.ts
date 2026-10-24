@@ -2430,6 +2430,8 @@ export interface operations {
                 channel?: number | null;
                 creator?: number | null;
                 kind?: components["schemas"]["ContentKind"] | null;
+                /** @description none of these kinds */
+                exclude_kind?: components["schemas"]["ContentKind"][] | null;
                 watch?: ("unwatched" | "in_progress" | "watched") | null;
                 integrity?: components["schemas"]["Integrity"] | null;
                 /** @description has all of these tags */
@@ -2472,6 +2474,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                /** @description none of these kinds */
+                exclude_kind?: components["schemas"]["ContentKind"][] | null;
             };
             header?: never;
             path?: never;

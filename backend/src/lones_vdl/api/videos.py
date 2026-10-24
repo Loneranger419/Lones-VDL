@@ -78,6 +78,9 @@ def list_videos(
     channel: Annotated[int | None, Query()] = None,
     creator: Annotated[int | None, Query()] = None,
     kind: Annotated[ContentKind | None, Query()] = None,
+    exclude_kind: Annotated[
+        list[ContentKind] | None, Query(description="none of these kinds")
+    ] = None,
     watch: Annotated[library.WatchFilter | None, Query()] = None,
     integrity: Annotated[Integrity | None, Query()] = None,
     tag: Annotated[list[str] | None, Query(description="has all of these tags")] = None,
@@ -95,6 +98,7 @@ def list_videos(
         channel_pk=channel,
         creator_pk=creator,
         kind=kind,
+        exclude_kinds=[str(k) for k in exclude_kind or []],
         watch=watch,
         integrity=integrity,
         tags=tag or [],
@@ -116,9 +120,15 @@ def list_videos(
 
 
 @router.get("/continue", response_model=list[VideoOut])
-def continue_watching(db: DbDep, limit: Annotated[int, Query(ge=1, le=100)] = 12):
+def continue_watching(
+    db: DbDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 12,
+    exclude_kind: Annotated[
+        list[ContentKind] | None, Query(description="none of these kinds")
+    ] = None,
+):
     """Started but not finished, most recently watched first."""
-    return library.continue_watching(db, limit)
+    return library.continue_watching(db, limit, [str(k) for k in exclude_kind or []])
 
 
 @router.get("/{video_pk}", response_model=VideoDetail)

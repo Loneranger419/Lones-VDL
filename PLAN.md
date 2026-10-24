@@ -3,8 +3,12 @@
 The plan and where it stands. Rules and conventions for working in the code are in `AGENTS.md`;
 usage and API are in `README.md`. v1 is preserved on the `v1` branch.
 
-**Current state (2026-10-23):** Phases 0–4 done, plus the YouTube download policy (below).
-Everything is committed and pushed to `main`. **Next: Phase 5 (deploy to the LXC/VM) — start only when the user asks.**
+**Current state (2026-10-24):** Phases 0–4 done, plus the YouTube download policy (below), and
+these since: tags and filter presets, queue summary, player preferences, mini player, chapters and
+"most replayed" (with re-checks), shorts kept apart with a scrolling `/shorts` feed. Everything is
+committed and pushed to `main`.
+**Next, in the order the user set:** (1) the compatible H.264 copy (design under Backlog, first
+item), (2) Twitch (Phase 6), (3) Phase 5 (deploy to the LXC/VM) — start only when the user asks.
 
 ## Phases
 
@@ -139,7 +143,19 @@ concurrency, duplicate jobs, resume.
   under the description. Not done: tag search in the top bar, channel-level tags, showing tags
   on video cards, and Twitch tags (check what its extractor gives).
 
-- Per-download "compatible" H.264 option (remux/derivative, never touching the original).
+- **Compatible (H.264) copy — next to build, design agreed 2026-10-23/24.** The browser, not the
+  user, decides: when playback fails (video error 3/4, or `canPlayType`/`mediaCapabilities` say no
+  for the stored codec; add a `vcodec` column) the Watch page starts a `transcode` job by itself,
+  shows a banner with progress over the player, and switches to the copy when it is done. Details:
+  own job lane, one at a time; ffmpeg `libx264` CRF ~23 `medium`, 1080p cap, progress from
+  `-progress`, cancellable, written to a temp name and renamed into `derivatives/`; starting is
+  idempotent; the copy is served only to browsers that need it; the original is never touched.
+  Copies not watched for 14 days are deleted automatically, and Health gets a "delete compatible
+  copies" action. Measured: static 1080p AV1 at 1 Mbps becomes 2.6x larger as H.264 (SSIM 0.995,
+  3.8x realtime on 24 threads); 4K AV1 at 12.9 Mbps becomes 0.34x at 1080p (SSIM 0.96, 1.9x
+  realtime). Twitch VODs are already H.264 (~6.5 Mbps); Twitch clips are HEVC. **This changes an
+  `AGENTS.md` rule** ("remux-only derivatives", transcoding out of scope): amend it in the same
+  change, allowing transcoding only when a browser needs it, original always kept.
 - Platform filter in the library and search. The API has no `platform` query param yet; add it
   with Twitch at the latest.
 - Treat several consecutive failures of any kind (bot check, 403, unknown) as a suspected rate
@@ -151,6 +167,13 @@ concurrency, duplicate jobs, resume.
 - Autoplay on arrival at the Watch page is untested in a real browser (headless blocks it).
 - Video.js 10 is new (10.0.1, pinned). Consider upgrading after it matures; only
   `player.svelte` uses it.
+- Shorts are separate (2026-10-24): own Home row, left out of other rows, Up next, and the Library
+  by default; shorts never carry the default tag filter; `/shorts` is a scrolling feed (quick wheel
+  scroll of 0.3 s, volume slider and mute shared with the Watch player, progress saved). Channel and
+  creator pages still list shorts with the rest (not decided). The corner mini player is still 16:9.
+- Policy counting (2026-10-24): downloads on the personal account count only towards "using an
+  account", not the daily total; a job approved by hand skips the daily total gate. The worker
+  now searches the whole queue (it used to see only the first 200 jobs, which starved shorts).
 - Chapters and "most replayed" are done (2026-10-24): read from `info.json` on request
   (`services/chapters.py`, no migration), served as JSON and as a WebVTT chapters track that the
   Video.js skin draws on its timeline, plus a chapter list and a replay graph on the Watch page.

@@ -775,6 +775,27 @@
             }
           },
           {
+            "name": "exclude_kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ContentKind"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "none of these kinds",
+              "title": "Exclude Kind"
+            },
+            "description": "none of these kinds"
+          },
+          {
             "name": "watch",
             "in": "query",
             "required": false,
@@ -959,6 +980,27 @@
               "default": 12,
               "title": "Limit"
             }
+          },
+          {
+            "name": "exclude_kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ContentKind"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "none of these kinds",
+              "title": "Exclude Kind"
+            },
+            "description": "none of these kinds"
           }
         ],
         "responses": {

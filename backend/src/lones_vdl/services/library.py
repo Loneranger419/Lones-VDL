@@ -17,6 +17,7 @@ from lones_vdl.db.models import (
     Channel,
     Collection,
     CollectionItem,
+    ContentKind,
     Creator,
     Job,
     Video,
@@ -63,6 +64,7 @@ class VideoQuery:
     channel_pk: int | None = None
     creator_pk: int | None = None
     kind: str | None = None
+    exclude_kinds: list[str] = field(default_factory=list)  # none of these kinds
     watch: WatchFilter | None = None
     integrity: str | None = None
     tags: list[str] = field(default_factory=list)  # has all of these
@@ -115,6 +117,8 @@ def _filtered(params: VideoQuery, *, use_preset: bool = True) -> Select:
         )
     if params.kind:
         query = query.where(Video.content_kind == params.kind)
+    if params.exclude_kinds:
+        query = query.where(Video.content_kind.not_in(params.exclude_kinds))
     if params.integrity:
         query = query.where(Video.integrity == params.integrity)
     if params.watch == "watched":
@@ -139,7 +143,9 @@ def get_video(db: DbSession, video_pk: int) -> Video | None:
     return db.scalars(with_relations(select(Video).where(Video.id == video_pk))).first()
 
 
-def continue_watching(db: DbSession, limit: int) -> list[Video]:
+def continue_watching(
+    db: DbSession, limit: int, exclude_kinds: list[str] | None = None
+) -> list[Video]:
     query = (
         select(Video)
         .join(WatchProgress, WatchProgress.video_pk == Video.id)
@@ -147,14 +153,26 @@ def continue_watching(db: DbSession, limit: int) -> list[Video]:
         .order_by(WatchProgress.last_watched_at.desc())
         .limit(limit)
     )
+    if exclude_kinds:
+        query = query.where(Video.content_kind.not_in(exclude_kinds))
     return list(db.scalars(with_relations(query)).all())
 
 
 def related(db: DbSession, video: Video, limit: int) -> tuple[Video | None, list[Video]]:
-    """Up next = the following upload from the same channel; plus more from the channel."""
+    """Up next = the following upload from the same channel; plus more from the channel.
+
+    Shorts and regular videos are kept apart: a short is followed by shorts, anything else by
+    everything but shorts."""
     if video.channel_pk is None:
         return None, []
-    same_channel = select(Video).where(Video.channel_pk == video.channel_pk, Video.id != video.id)
+    is_short = video.content_kind == ContentKind.SHORT
+    same_channel = select(Video).where(
+        Video.channel_pk == video.channel_pk,
+        Video.id != video.id,
+        (Video.content_kind == ContentKind.SHORT)
+        if is_short
+        else (Video.content_kind != ContentKind.SHORT),
+    )
     up_next = None
     if video.upload_date is not None:
         up_next = db.scalars(

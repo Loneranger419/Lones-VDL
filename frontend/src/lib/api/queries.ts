@@ -98,7 +98,9 @@ export const queries = {
 	continueWatching: () =>
 		queryOptions({
 			queryKey: keys.continueWatching,
-			queryFn: () => call(api.GET('/api/videos/continue'))
+			// Shorts have their own row on Home and their own feed.
+			queryFn: () =>
+				call(api.GET('/api/videos/continue', { params: { query: { exclude_kind: ['short'] } } }))
 		}),
 	channels: () =>
 		queryOptions({

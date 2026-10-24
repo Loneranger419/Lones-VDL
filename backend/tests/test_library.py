@@ -184,3 +184,35 @@ def test_stats(authed, library):
     assert stats["by_integrity"] == {"unverified": 3}
     assert stats["jobs"]["completed"] >= 3
     assert stats["archive_free_bytes"] > 0
+
+
+def make_short(client, pk: int) -> None:
+    from conftest import services
+
+    from lones_vdl.db.models import ContentKind, Video
+
+    with services(client).sessions.begin() as db:
+        db.get(Video, pk).content_kind = ContentKind.SHORT
+
+
+def test_exclude_kind_and_shorts_stay_out_of_up_next(authed, library):
+    short = library[IDS[2]]
+    make_short(authed, short)
+    assert video_ids(
+        authed.get("/api/videos", params={"exclude_kind": "short", "sort": "archived_asc"})
+    ) == [
+        IDS[0],
+        IDS[1],
+    ]
+    assert video_ids(authed.get("/api/videos", params={"kind": "short"})) == [IDS[2]]
+    authed.put(f"/api/videos/{short}/progress", json={"position_seconds": 5})
+    assert authed.get("/api/videos/continue", params={"exclude_kind": "short"}).json() == []
+    assert len(authed.get("/api/videos/continue").json()) == 1
+
+    # Watching a regular video: the short is neither up next nor "more from this channel".
+    related = authed.get(f"/api/videos/{library[IDS[0]]}/related").json()
+    assert related["up_next"]["video_id"] == IDS[1]
+    assert related["more_from_channel"] == []
+    # Watching the short: only shorts follow it.
+    none = authed.get(f"/api/videos/{short}/related").json()
+    assert none["up_next"] is None and none["more_from_channel"] == []

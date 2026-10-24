@@ -53,8 +53,9 @@ cd frontend; npm run api
 
 | Page | What it's for |
 |------|---------------|
-| Home | Continue watching and recently archived (one line each), recently uploaded (four rows), downloads in progress, channels |
-| Library | Everything archived, newest uploads first by default: search (top bar), kind / progress / channel / tag filters, tag preset, sort. Tags show under each video's description and link here |
+| Home | Continue watching and recently archived (one line each), recently uploaded shorts (a row of tall cards), recently uploaded (four rows), downloads in progress, channels. Shorts appear only in their own row |
+| Shorts | A scrolling feed like YouTube Shorts / TikTok: one short fills the view, scroll, use the arrow keys (or J / K), or the buttons for the next; only the short in view loads and plays, looping. Opens at the short you clicked; volume and mute are shared with the Watch player |
+| Library | Everything archived, newest uploads first by default: search (top bar), kind / progress / channel / tag filters, tag preset, sort. Shorts are left out by default ("No shorts"; pick All or Shorts to see them; a search looks through them too). Tags show under each video's description and link here |
 | Watch | Player (a portrait video such as a short gets a tall, narrow player instead of 16:9) with captions (not downloaded with a video; "Get subtitles" fetches them as a small job) and resume; remembers volume, mute, speed, and captions on/off in this browser (with captions on but none downloaded, a 5 second note points to Get subtitles); marks a video watched at 90%; chapters on the timeline and in a list, and a "most replayed" graph under the player (from the archived `info.json`, when YouTube or Twitch provided them; a video missing chapters (under 14 days old) or replay data (under 30) is checked again when played, at most daily); up next with autoplay; a video that is playing when you leave for another page carries on in a small corner player (expand or close it); collection playlists via `?collection=` |
 | Downloads | Paste a video, playlist, or channel link; live progress, cancel, retry (optionally with an account), approve personal-account videos, full yt-dlp log per job |
 | Channels | Per-channel auto-archive (what to include, quality, "Check now"), creator linking; Creators tab groups channels |
@@ -89,8 +90,8 @@ the job moves to the **alternate** account (a dedicated, age-verified Google acc
 waits under Downloads > "Needs approval" until you approve it. Rate limits (HTTP 429) pause the
 queue with a backoff and never switch accounts. Daily caps over a rolling 24
 hours (default 50 videos and 10 using an account; shorts have their own pool of 100 and 5) and the
-delay range are in Settings. A video you approve by hand ignores the daily total (it still
-counts towards it). Shorts only download while no video or stream can run. Each site has
+delay range are in Settings. A video you approve by hand ignores the daily total and counts only
+as "using an account", not as one of the 50. Shorts only download while no video or stream can run. Each site has
 its own limits and its own card on the Downloads page. These are starting points; no setting
 guarantees YouTube will not restrict an account.
 
@@ -159,7 +160,7 @@ Main areas:
 | Area | Endpoints |
 |------|-----------|
 | Downloads | `POST /api/jobs` with a video, playlist, or channel URL; `POST /api/videos/{id}/subtitles` fetches captions later (`watch`, `backfill`, `tabs` for channels); list (`order=queue` puts running first, then start order)/cancel/retry/log; `GET /api/jobs/queue` counts waiting jobs by type |
-| Library | `GET /api/videos` (search, filters, sort, paging), `/continue`, `/{id}/related`, `/{id}/chapters` (+ `chapters.vtt`), `POST /{id}/chapters/check` (re-check a recent video missing chapters or replay data; at most daily; given up at 14 / 30 days), progress, watched, delete; `tag` / `exclude_tag` / `preset` filters (`preset` is an id, `default`, or `none`; the page reports `hidden`) |
+| Library | `GET /api/videos` (search, filters, sort, paging), `/continue`, `/{id}/related` (a short is followed only by shorts, anything else never by shorts), `/{id}/chapters` (+ `chapters.vtt`), `POST /{id}/chapters/check` (re-check a recent video missing chapters or replay data; at most daily; given up at 14 / 30 days), progress, watched, delete; `kind` / `exclude_kind` / `tag` / `exclude_tag` / `preset` filters (`preset` is an id, `default`, or `none`; the page reports `hidden`) |
 | Tags and presets | `GET /api/tags` (most used first, `q` to search); `GET/POST /api/presets`, `PUT/DELETE /api/presets/{id}`, `PUT /api/presets/default` |
 | Media | `/api/videos/{id}/media` (Range), `/thumbnail`, `/subtitles/{lang}.vtt`, `/api/channels/{id}/avatar` |
 | Channels | list, details, `PATCH` watch settings, `POST /{id}/check` |
