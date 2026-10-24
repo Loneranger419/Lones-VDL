@@ -1278,6 +1278,8 @@ export interface components {
             auth_tier: number;
             /** Approved At */
             approved_at: string | null;
+            /** Content Kind */
+            content_kind: string | null;
             /** Options */
             options: {
                 [key: string]: unknown;
@@ -1302,6 +1304,27 @@ export interface components {
             /** Finished At */
             finished_at: string | null;
         };
+        /**
+         * LimitGroup
+         * @description Use of one kind of content (videos, shorts, ...) over the last 24 hours.
+         */
+        LimitGroup: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Used */
+            used: number;
+            /** Cap */
+            cap: number;
+            /**
+             * Auth Used
+             * @description of `used`, how many used an account
+             */
+            auth_used: number;
+            /** Auth Cap */
+            auth_cap: number;
+        };
         /** PasswordChange */
         PasswordChange: {
             /** Current Password */
@@ -1320,18 +1343,16 @@ export interface components {
             remember: boolean;
         };
         /**
-         * PolicyStatus
-         * @description Use against the download policy's limits over the last 24 hours, and the pause.
+         * PlatformLimits
+         * @description One site's daily limits and pause. Each site has its own.
          */
-        PolicyStatus: {
-            /** Downloads 24H */
-            downloads_24h: number;
-            /** Authenticated 24H */
-            authenticated_24h: number;
-            /** Daily Download Cap */
-            daily_download_cap: number;
-            /** Daily Auth Cap */
-            daily_auth_cap: number;
+        PlatformLimits: {
+            /** Platform */
+            platform: string;
+            /** Label */
+            label: string;
+            /** Groups */
+            groups: components["schemas"]["LimitGroup"][];
             /** Paused Until */
             paused_until: string | null;
             /** Pause Reason */
@@ -1344,6 +1365,14 @@ export interface components {
             anonymous_refused_7d: number;
             /** Anonymous Other 7D */
             anonymous_other_7d: number;
+        };
+        /**
+         * PolicyStatus
+         * @description Use against the download policy's limits over the last 24 hours, per site.
+         */
+        PolicyStatus: {
+            /** Platforms */
+            platforms: components["schemas"]["PlatformLimits"][];
         };
         /** ProgressUpdate */
         ProgressUpdate: {
@@ -1394,6 +1423,16 @@ export interface components {
              */
             daily_auth_cap: number;
             /**
+             * Shorts Daily Cap
+             * @description shorts that start downloading per rolling 24 hours
+             */
+            shorts_daily_cap: number;
+            /**
+             * Shorts Daily Auth Cap
+             * @description of those, how many may use an account (0 = anonymous only)
+             */
+            shorts_daily_auth_cap: number;
+            /**
              * Video Delay Min Seconds
              * @description shortest pause between videos
              */
@@ -1421,6 +1460,10 @@ export interface components {
             daily_download_cap?: number | null;
             /** Daily Auth Cap */
             daily_auth_cap?: number | null;
+            /** Shorts Daily Cap */
+            shorts_daily_cap?: number | null;
+            /** Shorts Daily Auth Cap */
+            shorts_daily_auth_cap?: number | null;
             /** Video Delay Min Seconds */
             video_delay_min_seconds?: number | null;
             /** Video Delay Max Seconds */

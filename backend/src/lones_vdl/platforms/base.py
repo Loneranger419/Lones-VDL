@@ -20,6 +20,8 @@ class ParsedUrl:
     id: str | None
     # Canonical URL to hand to yt-dlp.
     url: str
+    # The URL names a short (a clip, on other platforms): short-form content with its own limits.
+    short: bool = False
 
 
 class Platform(Protocol):

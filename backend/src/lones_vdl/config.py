@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # Download policy defaults (editable at runtime). Starting points, not known-safe limits.
     daily_download_cap: int = Field(default=50, ge=1)
     daily_auth_cap: int = Field(default=10, ge=0)
+    # Shorts have their own pool, so a shorts backfill never uses up the video caps.
+    shorts_daily_cap: int = Field(default=100, ge=1)
+    shorts_daily_auth_cap: int = Field(default=5, ge=0)
     video_delay_min_seconds: float = Field(default=15.0, ge=0)
     video_delay_max_seconds: float = Field(default=30.0, ge=0)
     default_quality: str = "best"

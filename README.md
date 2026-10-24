@@ -87,9 +87,11 @@ Downloads run one video at a time, with a random 15-30 s pause between videos, a
 the job moves to the **alternate** account (a dedicated, age-verified Google account). A
 **personal** account is never used on its own: a video that needs it (for example members-only)
 waits under Downloads > "Needs approval" until you approve it. Rate limits (HTTP 429) pause the
-queue with a backoff and never switch accounts. Daily caps (default 50 videos, 10 using an
-account, rolling 24 hours) and the delay range are in Settings. These are starting points; no
-setting guarantees YouTube will not restrict an account.
+queue with a backoff and never switch accounts. Daily caps over a rolling 24
+hours (default 50 videos and 10 using an account; shorts have their own pool of 100 and 5) and the
+delay range are in Settings. Shorts only download while no video or stream can run. Each site has
+its own limits and its own card on the Downloads page. These are starting points; no setting
+guarantees YouTube will not restrict an account.
 
 Add accounts and their cookies on the Health page. To export cookies, so YouTube does not
 rotate them:

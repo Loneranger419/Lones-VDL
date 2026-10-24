@@ -20,10 +20,13 @@ Everything is committed and pushed to `main`. **Next: Phase 5 (deploy to the LXC
 - [x] **4. Frontend.** All pages, sidebar + phone nav, theme, live SSE updates, generated API
       client, PWA. Vidstack was deprecated, so the player is Video.js 10.
 - [x] **Download policy** (2026-10-23, between 4 and 5). Anonymous first, accounts table, daily
-      caps, delays, rate-limit pause, approval for the personal account, subtitles on request.
+      caps, delays, rate-limit pause, approval for the personal account, subtitles on request,
+      a separate shorts pool that yields to videos, and per-site limit cards.
       Rules in `AGENTS.md`; design detail in `docs/download-policy-design.md` (local).
 - [ ] **5. Deploy.** See below.
-- [ ] **6. Twitch.** `platforms/twitch.py`, VODs/clips, Twitch sections in the UI.
+- [ ] **6. Twitch.** `platforms/twitch.py`, VODs/clips, Twitch sections in the UI. Clips are the
+      short-form group: own caps, wait for VODs, as shorts do. Twitch gets its own entry in
+      `GET /api/policy` (own caps and pause), its own limits card, and its own Settings section.
 
 ## Phase 5 — deploy
 

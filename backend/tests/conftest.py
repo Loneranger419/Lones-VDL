@@ -147,6 +147,21 @@ def add_account(
         return account.id
 
 
+def youtube_limits(status: dict) -> dict:
+    """The YouTube entry of a policy status, with the videos group's numbers at the top level."""
+    youtube = next(p for p in status["platforms"] if p["platform"] == "youtube")
+    groups = {g["key"]: g for g in youtube["groups"]}
+    videos = groups["videos"]
+    return {
+        **youtube,
+        "downloads_24h": videos["used"],
+        "authenticated_24h": videos["auth_used"],
+        "daily_download_cap": videos["cap"],
+        "daily_auth_cap": videos["auth_cap"],
+        "shorts": groups["shorts"],
+    }
+
+
 def account_health(client: TestClient, account_id: int) -> str | None:
     """The health status the API reports for one account."""
     account = next(a for a in client.get("/api/accounts").json() if a["id"] == account_id)

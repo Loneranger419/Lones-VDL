@@ -27,6 +27,12 @@ class RuntimeSettings(BaseModel):
     daily_auth_cap: int = Field(
         ge=0, description="of those, how many may use an account (0 = anonymous only)"
     )
+    shorts_daily_cap: int = Field(
+        ge=1, description="shorts that start downloading per rolling 24 hours"
+    )
+    shorts_daily_auth_cap: int = Field(
+        ge=0, description="of those, how many may use an account (0 = anonymous only)"
+    )
     video_delay_min_seconds: float = Field(description="shortest pause between videos")
     video_delay_max_seconds: float = Field(description="longest pause between videos")
 
@@ -57,6 +63,8 @@ class RuntimeUpdate(BaseModel):
     ytdlp_update_interval_hours: float | None = None
     daily_download_cap: int | None = None
     daily_auth_cap: int | None = None
+    shorts_daily_cap: int | None = None
+    shorts_daily_auth_cap: int | None = None
     video_delay_min_seconds: float | None = None
     video_delay_max_seconds: float | None = None
 
@@ -82,6 +90,8 @@ class RuntimeConfig:
             "ytdlp_update_interval_hours": s.ytdlp_update_interval_hours,
             "daily_download_cap": s.daily_download_cap,
             "daily_auth_cap": s.daily_auth_cap,
+            "shorts_daily_cap": s.shorts_daily_cap,
+            "shorts_daily_auth_cap": s.shorts_daily_auth_cap,
             "video_delay_min_seconds": s.video_delay_min_seconds,
             "video_delay_max_seconds": s.video_delay_max_seconds,
         }

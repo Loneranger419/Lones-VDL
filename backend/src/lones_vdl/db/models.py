@@ -291,6 +291,9 @@ class Job(Base):
     # Highest AuthTier the job may use next. Starts anonymous; see services/policy.
     auth_tier: Mapped[int] = mapped_column(default=AuthTier.ANONYMOUS, server_default="0")
     approved_at: Mapped[datetime | None]
+    # "short" for a short (known from its URL or tab, or once resolved); NULL until known.
+    # Shorts have their own daily caps and wait for videos and streams (see services/policy).
+    content_kind: Mapped[str | None] = mapped_column(String(20))
     options: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     parent_pk: Mapped[int | None] = mapped_column(
@@ -336,6 +339,8 @@ class AccessAttempt(Base):
     started_at: Mapped[datetime] = mapped_column(default=utcnow)
     # Set once the media download begins; only these count toward the daily caps.
     download_started_at: Mapped[datetime | None]
+    # What was downloaded ("short" counts against the shorts caps; NULL = a video).
+    content_kind: Mapped[str | None] = mapped_column(String(20))
     finished_at: Mapped[datetime | None]
     # NULL while running; "ok", an ErrorKind value, or "interrupted" after a restart.
     outcome: Mapped[str | None] = mapped_column(String(30))

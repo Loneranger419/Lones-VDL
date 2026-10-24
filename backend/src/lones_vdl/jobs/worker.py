@@ -24,7 +24,7 @@ from lones_vdl.services import accounts as account_service
 from lones_vdl.services import channels as channel_service
 from lones_vdl.services import jobs as job_service
 from lones_vdl.services.jobs import JobReporter
-from lones_vdl.services.policy import Policy, register_rate_limit
+from lones_vdl.services.policy import Deferred, Policy, register_rate_limit
 from lones_vdl.storage import archive
 from lones_vdl.ytdlp import Cancelled, CancelToken, ErrorKind, YtdlpError, YtdlpManager
 from lones_vdl.ytdlp.errors import MESSAGES, RETRYABLE, error_lines
@@ -184,6 +184,8 @@ class Worker:
             fields = pipeline.run(job_id, token)
         except Cancelled:
             self._cancelled(job_id, pipeline)
+        except Deferred as exc:
+            self._deferred(job_id, pipeline, exc)
         except YtdlpError as exc:
             self._failed(job_id, pipeline, exc.kind, exc.detail)
         except archive.ArchiveConflict as exc:
@@ -205,6 +207,22 @@ class Worker:
             pipeline.cleanup(job_id)
             if fields.get("video_pk"):
                 self.reporter.bus.publish("video", {"id": fields["video_pk"], "job_id": job_id})
+
+    def _deferred(self, job_id: int, pipeline: Pipeline, exc: Deferred) -> None:
+        """The job turned out to be one the policy holds back for now (a short that must wait).
+        Back to the queue without charging an attempt."""
+        with self.sessions() as db:
+            job = db.get_one(Job, job_id)
+        self.reporter.update(
+            job_id,
+            status=JobStatus.QUEUED,
+            stage=JobStage.WAITING,
+            attempts=max(job.attempts - 1, 0),
+            # Not `exc.until`: the job is now marked as a short, so the policy gate holds it
+            # back live, and a changed cap or an empty video queue lets it go at once.
+            next_attempt_at=utcnow(),
+        )
+        pipeline.cleanup(job_id)
 
     def _cancelled(self, job_id: int, pipeline: Pipeline) -> None:
         if self._stopping:

@@ -94,6 +94,7 @@ def enqueue(
             video_id=parsed.id,
             quality=quality,
             priority=PRIORITY_MANUAL,
+            content_kind=ContentKind.SHORT if parsed.short else None,
             max_attempts=settings.download_max_attempts,
         )
     else:
@@ -333,7 +334,16 @@ class DownloadPipeline:
             dest = archive.video_dir(self.settings.archive_root, job.platform, video_id)
             self._check_conflict(job, video_id, dest)
 
-            attempt.download_started()
+            # Shorts have their own caps and give way to videos. Most are known from their URL
+            # or tab; one found only now may have to wait, without costing an attempt.
+            kind = content_kind(info)
+            was_short = job.content_kind == ContentKind.SHORT
+            self.reporter.update(job.id, content_kind=kind.value)
+            job.content_kind = kind.value
+            if kind == ContentKind.SHORT and not was_short:
+                self.policy.defer_if_blocked(job)
+
+            attempt.download_started(kind.value)
             tracker = ProgressTracker(job.id, expected_size(info), self.reporter.progress)
             self.reporter.progress(
                 JobProgress(id=job.id, stage=JobStage.DOWNLOADING, progress=0.0), force=True

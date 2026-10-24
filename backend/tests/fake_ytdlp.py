@@ -58,6 +58,8 @@ def fail(*lines: str) -> None:
 
 
 def info_for(video_id: str) -> dict:
+    # Ids containing "short" are portrait and brief, like a YouTube short.
+    short = "short" in video_id
     return {
         "id": video_id,
         "title": f"Title {video_id}",
@@ -67,9 +69,9 @@ def info_for(video_id: str) -> dict:
         "channel_url": "https://www.youtube.com/channel/UC" + "x" * 22,
         "uploader_id": "@fakechannel",
         "upload_date": "20240102",
-        "duration": 63,
-        "width": 1280,
-        "height": 720,
+        "duration": 30 if short else 63,
+        "width": 720 if short else 1280,
+        "height": 1280 if short else 720,
         "view_count": 1234,
         "like_count": 56,
         "format_id": "247+251",

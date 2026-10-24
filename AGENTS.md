@@ -80,8 +80,18 @@ account restrictions. Implemented in `services/policy.py`, `services/accounts.py
 - **HTTP 429 / throttling pauses all YouTube work** with backoff (15m, 30m, 1h, 2h, then 6h) and
   never changes account. Rate limits are detected from yt-dlp's error text (`ytdlp/errors.py`).
 - At least 15 s between authenticated attempts. Daily caps over a rolling 24 h window, editable
-  in Settings: 50 videos total, 10 using an account (defaults). A video counts when it starts
-  downloading, including ones that fail mid-download.
+  in Settings: 50 videos/streams total, 10 using an account (defaults). A download counts when
+  it starts downloading, including ones that fail mid-download.
+- **Shorts have their own pool**: 100 a day, 5 of them using an account (defaults), so a
+  shorts backfill never uses the video caps. A job is a short if its URL is `/shorts/`, it
+  came from a channel's shorts tab, or (found out after resolving) it is portrait and brief.
+  **Shorts only run while no video or stream is able to run**: a queued video held back only by
+  its own daily cap does not count. A short recognised only after resolving goes back to the
+  queue without costing an attempt (`Deferred`, outcome `deferred`).
+- **Limits are per site.** `GET /api/policy` returns one entry per platform, each with its
+  groups (videos, shorts; Twitch clips will be the short-form group), its pause, and its
+  anonymous success counts. The UI shows one card per site. Settings holds one section per
+  site. Twitch adds its own entry, caps, and pause; nothing is shared between sites.
 - Private videos fail as unavailable (manual "retry with account"); deleted/unavailable are not
   retried; transient network errors retry a limited number of times.
 - State is in SQLite (`access_attempts`, `jobs.auth_tier`, `app_settings` keys `policy.*`), so
@@ -89,7 +99,9 @@ account restrictions. Implemented in `services/policy.py`, `services/accounts.py
 - **Subtitles are not downloaded with a video** (YouTube throttles them separately; the first
   real 429 came from one). The Watch page "Get subtitles" queues a `subtitles` job (listing lane,
   same pause and ladder rules, alternate at most, counted as a listing).
-- Fixed constants live in `services/policy.py`; the Settings page edits only the caps and delay.
+- Fixed constants live in `services/policy.py`; the Settings page edits only the caps and delay
+  (`daily_download_cap`, `daily_auth_cap`, `shorts_daily_cap`, `shorts_daily_auth_cap`, and the
+  video delay range).
 
 ## Accounts and cookies
 

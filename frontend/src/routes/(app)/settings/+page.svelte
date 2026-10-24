@@ -140,67 +140,6 @@
 						/>
 						<p class="text-xs text-muted-foreground">Best keeps the original AV1/VP9 streams.</p>
 					</div>
-					<div class="space-y-2 sm:col-span-2">
-						<p class="text-sm text-muted-foreground">
-							Videos download one at a time. These limits reduce how much YouTube sees from this
-							server; they are starting points, not guarantees against rate limits or account
-							restrictions.
-						</p>
-					</div>
-					<div class="space-y-2">
-						<Label for="daily-cap">Videos per day</Label>
-						<Input
-							id="daily-cap"
-							type="number"
-							min="1"
-							step="1"
-							bind:value={draft.daily_download_cap}
-						/>
-						<p class="text-xs text-muted-foreground">
-							Over any rolling 24 hours. The queue resumes by itself when the limit frees up.
-						</p>
-					</div>
-					<div class="space-y-2">
-						<Label for="daily-auth-cap">Videos per day using an account</Label>
-						<Input
-							id="daily-auth-cap"
-							type="number"
-							min="0"
-							step="1"
-							bind:value={draft.daily_auth_cap}
-						/>
-						<p class="text-xs text-muted-foreground">
-							Counted within the limit above. 0 downloads anonymously only.
-						</p>
-					</div>
-					<div class="space-y-2 sm:col-span-2">
-						<Label for="delay-min">Pause between videos (seconds)</Label>
-						<div class="flex items-center gap-2">
-							<Input
-								id="delay-min"
-								class="w-24"
-								type="number"
-								min="15"
-								max="30"
-								step="1"
-								aria-label="Shortest pause in seconds"
-								bind:value={draft.video_delay_min_seconds}
-							/>
-							<span class="text-sm text-muted-foreground">to</span>
-							<Input
-								class="w-24"
-								type="number"
-								min="15"
-								max="30"
-								step="1"
-								aria-label="Longest pause in seconds"
-								bind:value={draft.video_delay_max_seconds}
-							/>
-						</div>
-						<p class="text-xs text-muted-foreground">
-							A random pause in this range (15 to 30) follows every video.
-						</p>
-					</div>
 					<div class="space-y-2">
 						<Label>Check auto-archived channels</Label>
 						<SimpleSelect
@@ -237,6 +176,97 @@
 							Nightly gets YouTube fixes days earlier; switch to it if downloads suddenly break.
 						</p>
 					</div>
+					<fieldset class="space-y-5 rounded-xl border p-4 sm:col-span-2">
+						<legend class="px-2 text-sm font-medium">YouTube download limits</legend>
+						<p class="text-sm text-muted-foreground">
+							Each site has its own limits. Downloads run one at a time, and shorts wait while a
+							video or stream can run. These reduce how much YouTube sees from this server; they are
+							starting points, not guarantees against rate limits or account restrictions.
+						</p>
+						<div class="grid gap-5 sm:grid-cols-2">
+							<div class="space-y-2">
+								<Label for="daily-cap">Videos per day</Label>
+								<Input
+									id="daily-cap"
+									type="number"
+									min="1"
+									step="1"
+									bind:value={draft.daily_download_cap}
+								/>
+								<p class="text-xs text-muted-foreground">
+									Videos and streams, over any rolling 24 hours. The queue resumes by itself when
+									the limit frees up.
+								</p>
+							</div>
+							<div class="space-y-2">
+								<Label for="daily-auth-cap">Videos per day using an account</Label>
+								<Input
+									id="daily-auth-cap"
+									type="number"
+									min="0"
+									step="1"
+									bind:value={draft.daily_auth_cap}
+								/>
+								<p class="text-xs text-muted-foreground">
+									Counted within the limit above. 0 downloads anonymously only.
+								</p>
+							</div>
+							<div class="space-y-2">
+								<Label for="shorts-cap">Shorts per day</Label>
+								<Input
+									id="shorts-cap"
+									type="number"
+									min="1"
+									step="1"
+									bind:value={draft.shorts_daily_cap}
+								/>
+								<p class="text-xs text-muted-foreground">
+									Separate from videos, so a shorts backfill never uses up the video limit.
+								</p>
+							</div>
+							<div class="space-y-2">
+								<Label for="shorts-auth-cap">Shorts per day using an account</Label>
+								<Input
+									id="shorts-auth-cap"
+									type="number"
+									min="0"
+									step="1"
+									bind:value={draft.shorts_daily_auth_cap}
+								/>
+								<p class="text-xs text-muted-foreground">
+									Counted within the shorts limit. Shorts rarely need an account.
+								</p>
+							</div>
+							<div class="space-y-2 sm:col-span-2">
+								<Label for="delay-min">Pause between downloads (seconds)</Label>
+								<div class="flex items-center gap-2">
+									<Input
+										id="delay-min"
+										class="w-24"
+										type="number"
+										min="15"
+										max="30"
+										step="1"
+										aria-label="Shortest pause in seconds"
+										bind:value={draft.video_delay_min_seconds}
+									/>
+									<span class="text-sm text-muted-foreground">to</span>
+									<Input
+										class="w-24"
+										type="number"
+										min="15"
+										max="30"
+										step="1"
+										aria-label="Longest pause in seconds"
+										bind:value={draft.video_delay_max_seconds}
+									/>
+								</div>
+								<p class="text-xs text-muted-foreground">
+									A random pause in this range (15 to 30) follows every download.
+								</p>
+							</div>
+						</div>
+					</fieldset>
 					<div class="flex gap-2 sm:col-span-2">
 						<Button type="submit" disabled={!dirty || save.isPending}>Save changes</Button>
 						{#if dirty}

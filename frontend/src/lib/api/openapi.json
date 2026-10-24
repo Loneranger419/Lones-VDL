@@ -3755,6 +3755,17 @@
             ],
             "title": "Approved At"
           },
+          "content_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Kind"
+          },
           "options": {
             "anyOf": [
               {
@@ -3863,6 +3874,7 @@
           "ytdlp_version",
           "auth_tier",
           "approved_at",
+          "content_kind",
           "options",
           "result",
           "parent_pk",
@@ -3873,6 +3885,46 @@
           "finished_at"
         ],
         "title": "JobOut"
+      },
+      "LimitGroup": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "used": {
+            "type": "integer",
+            "title": "Used"
+          },
+          "cap": {
+            "type": "integer",
+            "title": "Cap"
+          },
+          "auth_used": {
+            "type": "integer",
+            "title": "Auth Used",
+            "description": "of `used`, how many used an account"
+          },
+          "auth_cap": {
+            "type": "integer",
+            "title": "Auth Cap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "used",
+          "cap",
+          "auth_used",
+          "auth_cap"
+        ],
+        "title": "LimitGroup",
+        "description": "Use of one kind of content (videos, shorts, ...) over the last 24 hours."
       },
       "PasswordChange": {
         "properties": {
@@ -3916,23 +3968,22 @@
         ],
         "title": "PasswordRequest"
       },
-      "PolicyStatus": {
+      "PlatformLimits": {
         "properties": {
-          "downloads_24h": {
-            "type": "integer",
-            "title": "Downloads 24H"
+          "platform": {
+            "type": "string",
+            "title": "Platform"
           },
-          "authenticated_24h": {
-            "type": "integer",
-            "title": "Authenticated 24H"
+          "label": {
+            "type": "string",
+            "title": "Label"
           },
-          "daily_download_cap": {
-            "type": "integer",
-            "title": "Daily Download Cap"
-          },
-          "daily_auth_cap": {
-            "type": "integer",
-            "title": "Daily Auth Cap"
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/LimitGroup"
+            },
+            "type": "array",
+            "title": "Groups"
           },
           "paused_until": {
             "anyOf": [
@@ -3984,10 +4035,9 @@
         },
         "type": "object",
         "required": [
-          "downloads_24h",
-          "authenticated_24h",
-          "daily_download_cap",
-          "daily_auth_cap",
+          "platform",
+          "label",
+          "groups",
           "paused_until",
           "pause_reason",
           "next_video_at",
@@ -3995,8 +4045,25 @@
           "anonymous_refused_7d",
           "anonymous_other_7d"
         ],
+        "title": "PlatformLimits",
+        "description": "One site's daily limits and pause. Each site has its own."
+      },
+      "PolicyStatus": {
+        "properties": {
+          "platforms": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformLimits"
+            },
+            "type": "array",
+            "title": "Platforms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "platforms"
+        ],
         "title": "PolicyStatus",
-        "description": "Use against the download policy's limits over the last 24 hours, and the pause."
+        "description": "Use against the download policy's limits over the last 24 hours, per site."
       },
       "ProgressUpdate": {
         "properties": {
@@ -4095,6 +4162,18 @@
             "title": "Daily Auth Cap",
             "description": "of those, how many may use an account (0 = anonymous only)"
           },
+          "shorts_daily_cap": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Shorts Daily Cap",
+            "description": "shorts that start downloading per rolling 24 hours"
+          },
+          "shorts_daily_auth_cap": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Shorts Daily Auth Cap",
+            "description": "of those, how many may use an account (0 = anonymous only)"
+          },
           "video_delay_min_seconds": {
             "type": "number",
             "title": "Video Delay Min Seconds",
@@ -4114,6 +4193,8 @@
           "ytdlp_update_interval_hours",
           "daily_download_cap",
           "daily_auth_cap",
+          "shorts_daily_cap",
+          "shorts_daily_auth_cap",
           "video_delay_min_seconds",
           "video_delay_max_seconds"
         ],
@@ -4190,6 +4271,28 @@
               }
             ],
             "title": "Daily Auth Cap"
+          },
+          "shorts_daily_cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shorts Daily Cap"
+          },
+          "shorts_daily_auth_cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shorts Daily Auth Cap"
           },
           "video_delay_min_seconds": {
             "anyOf": [

@@ -58,8 +58,10 @@
 	const subtitle = $derived.by(() => {
 		const parts: string[] = [];
 		if (job.kind === 'expand') parts.push(MODES[String(job.options?.mode ?? 'all')] ?? 'Listing');
-		else if (job.kind === 'download') parts.push(QUALITY_LABELS[job.quality] ?? job.quality);
-		else if (job.kind === 'subtitles') parts.push('Subtitles');
+		else if (job.kind === 'download') {
+			if (job.content_kind === 'short') parts.push('Short');
+			parts.push(QUALITY_LABELS[job.quality] ?? job.quality);
+		} else if (job.kind === 'subtitles') parts.push('Subtitles');
 		if (job.status === 'queued' && job.attempts > 0)
 			parts.push(`retry ${job.attempts + 1}/${job.max_attempts}`);
 		if (job.auth_tier === 1 && job.status !== 'completed') parts.push('alternate account');

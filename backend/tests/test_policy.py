@@ -14,6 +14,7 @@ from conftest import (
     services,
     wait_for_job,
     wait_until,
+    youtube_limits,
 )
 from sqlalchemy import select
 
@@ -40,7 +41,7 @@ def attempts(client, kind: str = AttemptKind.VIDEO) -> list[AccessAttempt]:
 def policy_status(client) -> dict:
     svc = services(client)
     with svc.sessions() as db:
-        return svc.policy.status(db)
+        return youtube_limits(svc.policy.status(db))
 
 
 def set_runtime(client, **changes) -> None:

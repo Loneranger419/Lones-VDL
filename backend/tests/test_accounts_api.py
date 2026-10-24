@@ -10,6 +10,7 @@ from conftest import (
     enqueue,
     services,
     wait_for_job,
+    youtube_limits,
 )
 from sqlalchemy import select
 
@@ -140,7 +141,7 @@ def test_importing_a_personal_account_rescues_members_only_failures(authed):
 
 
 def test_policy_status_reports_use_and_anonymous_results(authed):
-    empty = authed.get("/api/policy").json()
+    empty = youtube_limits(authed.get("/api/policy").json())
     assert empty["downloads_24h"] == 0 and empty["daily_download_cap"] == 50
     assert empty["daily_auth_cap"] == 10 and empty["paused_until"] is None
 
@@ -149,7 +150,7 @@ def test_policy_status_reports_use_and_anonymous_results(authed):
     wait_for_job(authed, enqueue(authed, "loginlogi01")["id"])
     wait_for_job(authed, enqueue(authed, "gonegone001")["id"])
 
-    status = authed.get("/api/policy").json()
+    status = youtube_limits(authed.get("/api/policy").json())
     assert status["downloads_24h"] == 2 and status["authenticated_24h"] == 1
     assert status["anonymous_ok_7d"] == 1
     assert status["anonymous_refused_7d"] == 1

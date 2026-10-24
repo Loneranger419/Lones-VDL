@@ -25,7 +25,7 @@ from sqlalchemy.orm import sessionmaker
 
 from lones_vdl.config import Settings
 from lones_vdl.db import utcnow
-from lones_vdl.db.models import AttemptKind, Channel, Job, JobKind, JobStage
+from lones_vdl.db.models import AttemptKind, Channel, ContentKind, Job, JobKind, JobStage
 from lones_vdl.platforms import UrlKind, get_platform, parse_url
 from lones_vdl.services import accounts as account_service
 from lones_vdl.services import channels as channel_service
@@ -227,6 +227,7 @@ class ExpandPipeline:
     ) -> dict[str, Any]:
         platform = get_platform(job.platform)
         found: dict[str, tuple[str, str | None]] = {}  # video id -> (url, title)
+        shorts: set[str] = set()  # ids first seen as a short (shorts tab or /shorts/ URL)
         live = 0
         per_tab: dict[str, int] = {}
         for tab, listing in listings.items():
@@ -241,6 +242,8 @@ class ExpandPipeline:
                     live += 1
                     continue
                 per_tab[tab] += 1
+                if parsed.id not in found and (tab == "shorts" or parsed.short):
+                    shorts.add(parsed.id)
                 found.setdefault(parsed.id, (parsed.url, entry.get("title")))
 
         known = channel_service.known_video_ids(db, job.platform, found)
@@ -275,6 +278,7 @@ class ExpandPipeline:
                     quality=quality,
                     title=title,
                     priority=priority,
+                    content_kind=ContentKind.SHORT if vid in shorts else None,
                     parent_pk=job.id,
                     channel_pk=channel.id if channel else None,
                     max_attempts=self.settings.download_max_attempts,

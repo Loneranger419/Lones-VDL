@@ -38,12 +38,13 @@
 				});
 			}
 		}
-		const until = policy.data?.paused_until;
-		if (until && new Date(until).getTime() > Date.now()) {
+		for (const site of policy.data?.platforms ?? []) {
+			const until = site.paused_until;
+			if (!until || new Date(until).getTime() <= Date.now()) continue;
 			list.push({
-				key: 'paused',
+				key: `paused-${site.platform}`,
 				level: 'warning',
-				message: `YouTube is limiting requests, so downloads are paused until ${new Date(until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`,
+				message: `${site.label} is limiting requests, so its downloads are paused until ${new Date(until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`,
 				href: '/health',
 				action: 'Details',
 				icon: PauseIcon

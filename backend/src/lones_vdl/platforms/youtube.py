@@ -56,7 +56,7 @@ class YouTube:
             video_id = (query.get("v") or [""])[0]
             return self._video(video_id) if _VIDEO_ID.match(video_id) else None
         if len(segments) >= 2 and segments[0] in _VIDEO_PATHS and _VIDEO_ID.match(segments[1]):
-            return self._video(segments[1])
+            return self._video(segments[1], short=segments[0] == "shorts")
         if segments[:1] == ["playlist"]:
             list_id = (query.get("list") or [""])[0]
             if _PLAYLIST_ID.match(list_id):
@@ -69,8 +69,8 @@ class YouTube:
             return None
         return self._channel(segments)
 
-    def _video(self, video_id: str) -> ParsedUrl:
-        return ParsedUrl(NAME, UrlKind.VIDEO, video_id, self.video_url(video_id))
+    def _video(self, video_id: str, short: bool = False) -> ParsedUrl:
+        return ParsedUrl(NAME, UrlKind.VIDEO, video_id, self.video_url(video_id), short=short)
 
     def _channel(self, segments: list[str]) -> ParsedUrl | None:
         if not segments:

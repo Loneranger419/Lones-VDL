@@ -37,6 +37,7 @@ class JobOut(OrmModel):
     ytdlp_version: str | None
     auth_tier: int
     approved_at: datetime | None
+    content_kind: str | None
     options: dict[str, Any] | None
     result: dict[str, Any] | None
     parent_pk: int | None
@@ -271,13 +272,23 @@ class RetryRequest(BaseModel):
     )
 
 
-class PolicyStatus(BaseModel):
-    """Use against the download policy's limits over the last 24 hours, and the pause."""
+class LimitGroup(BaseModel):
+    """Use of one kind of content (videos, shorts, ...) over the last 24 hours."""
 
-    downloads_24h: int
-    authenticated_24h: int
-    daily_download_cap: int
-    daily_auth_cap: int
+    key: str
+    label: str
+    used: int
+    cap: int
+    auth_used: int = Field(description="of `used`, how many used an account")
+    auth_cap: int
+
+
+class PlatformLimits(BaseModel):
+    """One site's daily limits and pause. Each site has its own."""
+
+    platform: str
+    label: str
+    groups: list[LimitGroup]
     paused_until: datetime | None
     pause_reason: str | None
     next_video_at: datetime | None
@@ -285,6 +296,12 @@ class PolicyStatus(BaseModel):
     anonymous_ok_7d: int
     anonymous_refused_7d: int
     anonymous_other_7d: int
+
+
+class PolicyStatus(BaseModel):
+    """Use against the download policy's limits over the last 24 hours, per site."""
+
+    platforms: list[PlatformLimits]
 
 
 class CookieImportOut(BaseModel):
