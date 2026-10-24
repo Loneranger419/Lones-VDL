@@ -319,6 +319,9 @@
 						poster={current.has_thumbnail ? mediaUrl.thumbnail(current.id) : undefined}
 						{tracks}
 						chapters={current.chapter_count > 0 ? mediaUrl.chapters(current.id) : undefined}
+						aspect={current.width && current.height && current.height > current.width
+							? current.width / current.height
+							: undefined}
 						startAt={startFor(current)}
 						autoplay
 						{ontime}

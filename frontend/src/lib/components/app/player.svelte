@@ -16,6 +16,7 @@
 		poster,
 		tracks = [],
 		chapters,
+		aspect = 16 / 9,
 		startAt = 0,
 		autoplay = false,
 		ontime,
@@ -27,6 +28,8 @@
 		tracks?: Track[];
 		/** WebVTT chapters track; the skin draws the chapters on its timeline. */
 		chapters?: string;
+		/** Width over height of the picture; a portrait video (a short) gets a narrow, tall player. */
+		aspect?: number;
 		/** Seconds to resume from, applied once the media is ready. */
 		startAt?: number;
 		autoplay?: boolean;
@@ -154,7 +157,11 @@
 
 <div class="relative">
 	<video-player {poster}>
-		<video-skin class="player-skin">
+		<video-skin
+			class="player-skin"
+			style:aspect-ratio={aspect}
+			style:width={aspect < 1 ? `min(100%, calc(80vh * ${aspect}))` : '100%'}
+		>
 			<!-- svelte-ignore a11y_media_has_caption (archived subtitles are added below when present) -->
 			<video
 				bind:this={video}
@@ -191,8 +198,7 @@
 <style>
 	.player-skin {
 		display: block;
-		width: 100%;
-		aspect-ratio: 16 / 9;
+		margin-inline: auto;
 		background: black;
 		--media-accent-color: var(--primary);
 		--media-accent-text-color: var(--primary-foreground);
