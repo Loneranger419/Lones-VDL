@@ -147,7 +147,10 @@ class Snapshot:
             short = job.content_kind == ContentKind.SHORT
             if self.next_video_at:
                 ready = max(ready, self.next_video_at)
-            ready = max(ready, self.short_total_ready if short else self.total_ready)
+            # A job the user approved by hand is exempt from the daily total (it still counts
+            # towards it, and still waits for the account cap, the delay, and any pause).
+            if job.approved_at is None:
+                ready = max(ready, self.short_total_ready if short else self.total_ready)
             if uses_account:
                 ready = max(ready, self.short_auth_ready if short else self.auth_ready)
             if short and self.videos_waiting:

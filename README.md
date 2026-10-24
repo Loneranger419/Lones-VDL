@@ -89,7 +89,8 @@ the job moves to the **alternate** account (a dedicated, age-verified Google acc
 waits under Downloads > "Needs approval" until you approve it. Rate limits (HTTP 429) pause the
 queue with a backoff and never switch accounts. Daily caps over a rolling 24
 hours (default 50 videos and 10 using an account; shorts have their own pool of 100 and 5) and the
-delay range are in Settings. Shorts only download while no video or stream can run. Each site has
+delay range are in Settings. A video you approve by hand ignores the daily total (it still
+counts towards it). Shorts only download while no video or stream can run. Each site has
 its own limits and its own card on the Downloads page. These are starting points; no setting
 guarantees YouTube will not restrict an account.
 

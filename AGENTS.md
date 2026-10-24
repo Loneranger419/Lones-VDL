@@ -82,6 +82,10 @@ account restrictions. Implemented in `services/policy.py`, `services/accounts.py
 - At least 15 s between authenticated attempts. Daily caps over a rolling 24 h window, editable
   in Settings: 50 videos/streams total, 10 using an account (defaults). A download counts when
   it starts downloading, including ones that fail mid-download.
+  A job the user approved by hand (`approved_at`) is exempt from the daily total (it still counts
+  towards it, and still waits for the account cap, the delay, and any pause).
+  `claim_next` looks through the whole queue, a page at a time: held-back videos at the front must
+  never hide shorts or approved jobs behind them.
 - **Shorts have their own pool**: 100 a day, 5 of them using an account (defaults), so a
   shorts backfill never uses the video caps. A job is a short if its URL is `/shorts/`, it
   came from a channel's shorts tab, or (found out after resolving) it is portrait and brief.

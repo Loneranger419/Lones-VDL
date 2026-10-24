@@ -142,6 +142,30 @@ def test_a_video_held_by_its_own_cap_does_not_hold_shorts_back(authed):
     assert job(authed, stuck["id"])["status"] == "queued"
 
 
+def test_a_long_run_of_held_videos_does_not_hide_a_short(authed, monkeypatch):
+    from lones_vdl.services import jobs as job_service
+
+    monkeypatch.setattr(job_service, "CANDIDATE_LIMIT", 2)
+    set_runtime(authed, daily_download_cap=1)
+    wait_for_job(authed, enqueue(authed, VIDEO_A)["id"])
+    for video_id in ("okokokokok3", "okokokokok4", "okokokokok5", VIDEO_B):
+        enqueue(authed, video_id)  # all held by the cap, and ahead of the short in the queue
+    done = wait_for_job(authed, short(authed, SHORT_A)["id"])
+    assert done["status"] == "completed"
+
+
+def test_a_job_approved_by_hand_ignores_the_daily_video_cap(authed):
+    set_runtime(authed, daily_download_cap=1)
+    wait_for_job(authed, enqueue(authed, VIDEO_A)["id"])
+    held = enqueue(authed, VIDEO_B)
+    assert job(authed, held["id"])["status"] == "queued"
+    with services(authed).sessions.begin() as db:
+        db.get(Job, held["id"]).approved_at = utcnow()
+    services(authed).worker.wake()
+    assert wait_for_job(authed, held["id"])["status"] == "completed"
+    assert limits(authed)["downloads_24h"] == 2  # it still counts
+
+
 def test_a_short_only_recognised_after_resolving_steps_aside(authed):
     hold_everything(authed)
     # Looks like any video until it is resolved, so it is claimed first.

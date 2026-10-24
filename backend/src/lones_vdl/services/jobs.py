@@ -139,29 +139,35 @@ def claim_next(db: DbSession, kinds: Iterable[str], policy: Policy | None = None
     """Mark the next due, policy-approved queued job of these kinds as running.
 
     Single process: no locking. A job the policy holds back (pause, delay, caps) is skipped,
-    so a lower-priority job that may run still does."""
+    so a lower-priority job that may run still does. The whole queue is looked through, a page
+    at a time: a long run of held-back videos must not hide the shorts or approved jobs behind."""
     now = utcnow()
-    candidates = db.scalars(
-        select(Job)
-        .where(
-            Job.status == JobStatus.QUEUED,
-            Job.kind.in_(list(kinds)),
-            Job.next_attempt_at <= now,
-        )
-        .order_by(Job.priority.desc(), Job.next_attempt_at, Job.id)
-        .limit(CANDIDATE_LIMIT)
-    ).all()
     snapshot = policy.snapshot(db, now) if policy else None
-    for job in candidates:
-        if snapshot is not None and snapshot.ready_at(job) > now:
-            continue
-        job.status = JobStatus.RUNNING
-        job.stage = JobStage.WAITING
-        job.attempts += 1
-        job.started_at = now
-        job.progress = None
-        return job
-    return None
+    offset = 0
+    while True:
+        candidates = db.scalars(
+            select(Job)
+            .where(
+                Job.status == JobStatus.QUEUED,
+                Job.kind.in_(list(kinds)),
+                Job.next_attempt_at <= now,
+            )
+            .order_by(Job.priority.desc(), Job.next_attempt_at, Job.id)
+            .limit(CANDIDATE_LIMIT)
+            .offset(offset)
+        ).all()
+        for job in candidates:
+            if snapshot is not None and snapshot.ready_at(job) > now:
+                continue
+            job.status = JobStatus.RUNNING
+            job.stage = JobStage.WAITING
+            job.attempts += 1
+            job.started_at = now
+            job.progress = None
+            return job
+        if len(candidates) < CANDIDATE_LIMIT:
+            return None
+        offset += CANDIDATE_LIMIT
 
 
 def seconds_until_next_due(
@@ -173,7 +179,6 @@ def seconds_until_next_due(
         select(Job)
         .where(Job.status == JobStatus.QUEUED, Job.kind.in_(list(kinds)))
         .order_by(Job.next_attempt_at)
-        .limit(CANDIDATE_LIMIT)
     ).all()
     if not jobs:
         return None
