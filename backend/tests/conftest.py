@@ -11,8 +11,10 @@ from fastapi.testclient import TestClient
 
 from lones_vdl.config import Settings
 from lones_vdl.main import create_app
+from lones_vdl.services import accounts as account_service
 from lones_vdl.services import channels as channel_service
 from lones_vdl.services import jobs as job_service
+from lones_vdl.services import policy as policy_service
 
 FAKE_YTDLP = Path(__file__).parent / "fake_ytdlp.py"
 PASSWORD = "correct horse battery"
@@ -27,6 +29,9 @@ def settings(tmp_path: Path) -> Settings:
         archive_root=tmp_path / "archive",
         frontend_dist=tmp_path / "no-frontend",
         ytdlp_update_interval_hours=0,
+        # The download policy's real pacing would make every test wait.
+        video_delay_min_seconds=0,
+        video_delay_max_seconds=0,
     )
 
 
@@ -41,6 +46,14 @@ def fake_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture(autouse=True)
 def instant_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(job_service, "retry_delay", lambda attempt: timedelta(0))
+
+
+@pytest.fixture(autouse=True)
+def instant_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Policy waits are seconds in production; tests that exercise them set their own."""
+    monkeypatch.setattr(policy_service, "DELAY_FLOOR", 0.0)
+    monkeypatch.setattr(policy_service, "AUTH_GAP_SECONDS", 0.0)
+    monkeypatch.setattr(policy_service, "BACKOFF_SECONDS", (0.0,))
 
 
 @pytest.fixture(autouse=True)
@@ -112,3 +125,36 @@ def set_listings(fake_state: Path, listings: dict) -> None:
 
 def services(client: TestClient):
     return client.app.state.services
+
+
+COOKIES = (
+    "# Netscape HTTP Cookie File\n"
+    "#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t4102444800\tSID\tsecret\n"
+    ".paypal.com\tTRUE\t/\tTRUE\t4102444800\tx\ty\n"
+)
+# The fake yt-dlp treats cookies holding this name as a channel membership.
+MEMBER_COOKIES = COOKIES + ".youtube.com\tTRUE\t/\tTRUE\t4102444800\tMEMBERSHIP\t1\n"
+
+
+def add_account(
+    client: TestClient, label: str = "Alternate", role: str = "alternate", text=COOKIES
+):
+    """Create an account with cookies directly through the service layer."""
+    svc = services(client)
+    with svc.sessions.begin() as db:
+        account = account_service.create(db, label, role)
+        account_service.import_cookies(svc.settings, account, text)
+        return account.id
+
+
+def account_health(client: TestClient, account_id: int) -> str | None:
+    """The health status the API reports for one account."""
+    account = next(a for a in client.get("/api/accounts").json() if a["id"] == account_id)
+    health = account["status"]["health"]
+    return health["status"] if health else None
+
+
+def calls(fake_state: Path) -> list[str]:
+    """Resolve calls the fake yt-dlp saw, as 'video_id anon|auth', oldest first."""
+    path = fake_state / "calls"
+    return path.read_text().splitlines() if path.exists() else []

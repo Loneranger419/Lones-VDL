@@ -8,6 +8,8 @@ import type { Job, JobProgress } from './client.js';
 import { keys } from './queries.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+// Moves a job between the Downloads tabs, and changes the policy's counts.
+const SETTLED = new Set([...TERMINAL, 'awaiting_approval']);
 
 class LiveState {
 	connected = $state(false);
@@ -39,7 +41,7 @@ export function connectEvents(client: QueryClient): () => void {
 			return list.map((j) => (j.id === job.id ? job : j));
 		});
 		// New jobs, or jobs that changed status and so move between filtered lists.
-		if (!found || TERMINAL.has(job.status)) invalidateSoon(keys.jobs);
+		if (!found || SETTLED.has(job.status)) invalidateSoon(keys.jobs);
 		else invalidateSoon(keys.jobCounts);
 	}
 
@@ -56,8 +58,10 @@ export function connectEvents(client: QueryClient): () => void {
 	on('job', (job: Job) => {
 		if (job.status !== 'running') delete live.progress[job.id];
 		patchJob(job);
+		if (SETTLED.has(job.status)) invalidateSoon(keys.policy, keys.accounts);
 		if (job.kind === 'expand' && TERMINAL.has(job.status)) invalidateSoon(keys.channels);
 		if (job.kind === 'verify' || job.kind === 'rescan') invalidateSoon(keys.videos, keys.stats);
+		if (job.kind === 'subtitles' && TERMINAL.has(job.status)) invalidateSoon(keys.videos);
 	});
 	on('job.progress', (progress: JobProgress) => {
 		live.progress[progress.id] = progress;

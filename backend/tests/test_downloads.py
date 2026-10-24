@@ -6,15 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from conftest import enqueue, wait_for_job
-
-from lones_vdl.services.cookies import import_cookies
-
-COOKIES = (
-    "# Netscape HTTP Cookie File\n"
-    "#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t4102444800\tSID\tsecret\n"
-    ".paypal.com\tTRUE\t/\tTRUE\t4102444800\tx\ty\n"
-)
+from conftest import account_health, add_account, calls, enqueue, wait_for_job
 
 
 def test_download_archives_and_indexes(authed, settings):
@@ -34,7 +26,6 @@ def test_download_archives_and_indexes(authed, settings):
         "info.json",
         "media.webm",
         "metadata.json",
-        "subtitles/en.vtt",
         "thumbnail.jpg",
     ]
     metadata = json.loads((item / "metadata.json").read_text())
@@ -84,17 +75,21 @@ def test_bot_check_without_cookies_is_cookies_missing(authed):
     assert done["attempts"] == 1  # not retryable
 
 
-def test_bot_check_with_cookies_is_auth_required(authed, settings):
-    import_cookies(settings, COOKIES)
+def test_bot_check_with_cookies_is_auth_required(authed, fake_state):
+    add_account(authed)
     done = wait_for_job(authed, enqueue(authed, "botbotbot01")["id"])
-    assert done["error_kind"] == "auth_required"
+    assert done["status"] == "failed" and done["error_kind"] == "auth_required"
+    # Anonymous first, then the alternate account once; escalation is not a retry.
+    assert calls(fake_state) == ["botbotbot01 anon", "botbotbot01 auth"]
+    assert done["attempts"] == 1 and done["auth_tier"] == 1
 
 
-def test_rotated_cookies_are_reported(authed, settings):
-    import_cookies(settings, COOKIES)
+def test_rotated_cookies_are_reported(authed):
+    account_id = add_account(authed)
     done = wait_for_job(authed, enqueue(authed, "rotrotrot01")["id"])
     assert done["error_kind"] == "cookies_invalid"
     assert "private browser window" in done["error_message"]
+    assert account_health(authed, account_id) == "invalid"
 
 
 def test_unavailable_is_not_retried(authed):
@@ -102,26 +97,28 @@ def test_unavailable_is_not_retried(authed):
     assert (done["status"], done["error_kind"], done["attempts"]) == ("failed", "unavailable", 1)
 
 
-def test_rate_limit_is_retried(authed):
+def test_rate_limit_is_waited_out_not_charged(authed):
     done = wait_for_job(authed, enqueue(authed, "flakyflaky1")["id"])
     assert done["status"] == "completed"
-    assert done["attempts"] == 2
+    assert done["attempts"] == 1  # a rate limit is not the job's fault
 
 
-def test_subtitle_failure_does_not_fail_download(authed):
+def test_downloads_skip_subtitles(authed, settings, fake_state):
     done = wait_for_job(authed, enqueue(authed, "subfail0001")["id"])
-    assert done["status"] == "completed", done
+    assert done["status"] == "completed", done  # a subtitle error cannot reach the download
+    assert not (settings.archive_root / "youtube" / "subfail0001" / "subtitles").exists()
 
 
 def test_cookie_copy_is_private_and_removed(authed, settings, fake_state):
-    import_cookies(settings, COOKIES)
-    wait_for_job(authed, enqueue(authed, "okokokokok1")["id"])
+    account_id = add_account(authed)
+    # An anonymous-refused video escalates to the account, which is what makes a copy.
+    wait_for_job(authed, enqueue(authed, "loginlogi01")["id"])
     seen = [Path(p) for p in (fake_state / "cookies_seen").read_text().splitlines()]
     assert seen
     for path in seen:
         assert path.is_relative_to(settings.data_dir)  # never on the archive share
         assert not path.exists()
-    stored = settings.cookies_file.read_text()
+    stored = (settings.accounts_dir / f"{account_id}.txt").read_text()
     assert "paypal" not in stored and "SID" in stored
 
 

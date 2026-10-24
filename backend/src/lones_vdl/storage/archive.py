@@ -158,6 +158,33 @@ def write_checksums(workdir: Path) -> dict[str, str]:
     return sums
 
 
+def add_subtitles(item: Path, files: list[Path]) -> list[str]:
+    """Move fetched subtitle files (subs.<lang>.vtt) into an archived item, and record them in
+    its sidecar and checksums. Only the new files are hashed, not the media."""
+    added: dict[str, str] = {}
+    (item / "subtitles").mkdir(exist_ok=True)
+    for src in files:
+        lang = src.name.removeprefix("subs.").removesuffix(".vtt") or "und"
+        dest = item / "subtitles" / f"{lang}.vtt"
+        shutil.move(src, dest)
+        added[f"subtitles/{lang}.vtt"] = sha256_file(dest)
+    sidecar = item / METADATA_FILE
+    if sidecar.exists():
+        metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+        known = set(metadata.setdefault("files", {}).get("subtitles") or [])
+        metadata["files"]["subtitles"] = sorted(known | set(added))
+        _write_json(sidecar, metadata)
+    sums_file = item / CHECKSUMS_FILE
+    if sums_file.exists():
+        sums = json.loads(sums_file.read_text(encoding="utf-8"))
+        sums["files"].update(added)
+        # metadata.json changed too
+        if METADATA_FILE in sums["files"]:
+            sums["files"][METADATA_FILE] = sha256_file(sidecar)
+        _write_json(sums_file, sums)
+    return sorted(added)
+
+
 def promote(workdir: Path, dest: Path) -> None:
     """Move a finished item into place. Refuses to overwrite an existing archive item."""
     if dest.exists():

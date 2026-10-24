@@ -191,6 +191,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve
+         * @description Let a job that needs the personal account (e.g. members-only) run with it.
+         */
+        post: operations["approve_api_jobs__job_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/retry": {
         parameters: {
             query?: never;
@@ -200,7 +220,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Retry */
+        /**
+         * Retry
+         * @description Run a failed job again. Without an account it starts over anonymous; with `account_id`
+         *     (e.g. a private video) it uses that account, and the personal one counts as approval.
+         */
         post: operations["retry_api_jobs__job_id__retry_post"];
         delete?: never;
         options?: never;
@@ -298,6 +322,26 @@ export interface paths {
          * @description Channel checks will not queue a deleted video again; adding it by URL still works.
          */
         delete: operations["delete_video_api_videos__video_pk__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/videos/{video_pk}/subtitles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fetch Subtitles
+         * @description Queue a download of this video's subtitles. Archiving skips them by default.
+         */
+        post: operations["fetch_subtitles_api_videos__video_pk__subtitles_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -622,29 +666,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/cookies": {
+    "/api/accounts": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Cookie Status */
-        get: operations["cookie_status_api_cookies_get"];
+        /** List Accounts */
+        get: operations["list_accounts_api_accounts_get"];
         put?: never;
-        /**
-         * Import Cookies
-         * @description Replace the cookie jar, then retry jobs that failed for lack of valid cookies.
-         */
-        post: operations["import_cookies_api_cookies_post"];
-        /** Delete Cookies */
-        delete: operations["delete_cookies_api_cookies_delete"];
+        /** Create Account */
+        post: operations["create_account_api_accounts_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/cookies/test": {
+    "/api/accounts/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Account */
+        delete: operations["delete_account_api_accounts__account_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Account */
+        patch: operations["update_account_api_accounts__account_id__patch"];
+        trace?: never;
+    };
+    "/api/accounts/{account_id}/cookies": {
         parameters: {
             query?: never;
             header?: never;
@@ -654,10 +712,48 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Test Cookies
-         * @description Resolve an age-restricted video with the current cookies (no media download).
+         * Import Cookies
+         * @description Replace this account's cookies, then retry jobs that failed for lack of them.
          */
-        post: operations["test_cookies_api_cookies_test_post"];
+        post: operations["import_cookies_api_accounts__account_id__cookies_post"];
+        /** Delete Cookies */
+        delete: operations["delete_cookies_api_accounts__account_id__cookies_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accounts/{account_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Account
+         * @description Resolve an age-restricted video with this account (no media download).
+         */
+        post: operations["test_account_api_accounts__account_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Policy Status */
+        get: operations["policy_status_api_policy_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -800,6 +896,53 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccountCreate */
+        AccountCreate: {
+            /** Label */
+            label: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "alternate" | "personal";
+        };
+        /** AccountImportOut */
+        AccountImportOut: {
+            account: components["schemas"]["AccountOut"];
+            /** Summary */
+            summary: {
+                [key: string]: unknown;
+            };
+            /** Requeued Jobs */
+            requeued_jobs: number;
+        };
+        /** AccountOut */
+        AccountOut: {
+            /** Id */
+            id: number;
+            /** Label */
+            label: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "alternate" | "personal";
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            status: components["schemas"]["CookieStatus"];
+        };
+        /** AccountUpdate */
+        AccountUpdate: {
+            /** Label */
+            label?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+        };
         /** AuthStatus */
         AuthStatus: {
             /** Setup Required */
@@ -984,16 +1127,6 @@ export interface components {
             /** Detail */
             detail?: string | null;
         };
-        /** CookieImportOut */
-        CookieImportOut: {
-            status: components["schemas"]["CookieStatus"];
-            /** Summary */
-            summary: {
-                [key: string]: unknown;
-            };
-            /** Requeued Jobs */
-            requeued_jobs: number;
-        };
         /** CookieStatus */
         CookieStatus: {
             /** Present */
@@ -1141,6 +1274,10 @@ export interface components {
             error_message: string | null;
             /** Ytdlp Version */
             ytdlp_version: string | null;
+            /** Auth Tier */
+            auth_tier: number;
+            /** Approved At */
+            approved_at: string | null;
             /** Options */
             options: {
                 [key: string]: unknown;
@@ -1182,6 +1319,32 @@ export interface components {
              */
             remember: boolean;
         };
+        /**
+         * PolicyStatus
+         * @description Use against the download policy's limits over the last 24 hours, and the pause.
+         */
+        PolicyStatus: {
+            /** Downloads 24H */
+            downloads_24h: number;
+            /** Authenticated 24H */
+            authenticated_24h: number;
+            /** Daily Download Cap */
+            daily_download_cap: number;
+            /** Daily Auth Cap */
+            daily_auth_cap: number;
+            /** Paused Until */
+            paused_until: string | null;
+            /** Pause Reason */
+            pause_reason: string | null;
+            /** Next Video At */
+            next_video_at: string | null;
+            /** Anonymous Ok 7D */
+            anonymous_ok_7d: number;
+            /** Anonymous Refused 7D */
+            anonymous_refused_7d: number;
+            /** Anonymous Other 7D */
+            anonymous_other_7d: number;
+        };
         /** ProgressUpdate */
         ProgressUpdate: {
             /** Position Seconds */
@@ -1193,12 +1356,18 @@ export interface components {
             /** More From Channel */
             more_from_channel: components["schemas"]["VideoOut"][];
         };
+        /** RetryRequest */
+        RetryRequest: {
+            /**
+             * Account Id
+             * @description run this job with this account (the personal one counts as approval)
+             */
+            account_id?: number | null;
+        };
         /** RuntimeSettings */
         RuntimeSettings: {
             /** Default Quality */
             default_quality: string;
-            /** Download Concurrency */
-            download_concurrency: number;
             /**
              * Channel Watch Interval Hours
              * @description 0 disables channel checks
@@ -1214,6 +1383,26 @@ export interface components {
              * @description 0 disables auto-update
              */
             ytdlp_update_interval_hours: number;
+            /**
+             * Daily Download Cap
+             * @description videos that start downloading per rolling 24 hours
+             */
+            daily_download_cap: number;
+            /**
+             * Daily Auth Cap
+             * @description of those, how many may use an account (0 = anonymous only)
+             */
+            daily_auth_cap: number;
+            /**
+             * Video Delay Min Seconds
+             * @description shortest pause between videos
+             */
+            video_delay_min_seconds: number;
+            /**
+             * Video Delay Max Seconds
+             * @description longest pause between videos
+             */
+            video_delay_max_seconds: number;
         };
         /**
          * RuntimeUpdate
@@ -1222,14 +1411,20 @@ export interface components {
         RuntimeUpdate: {
             /** Default Quality */
             default_quality?: string | null;
-            /** Download Concurrency */
-            download_concurrency?: number | null;
             /** Channel Watch Interval Hours */
             channel_watch_interval_hours?: number | null;
             /** Ytdlp Channel */
             ytdlp_channel?: ("stable" | "nightly") | null;
             /** Ytdlp Update Interval Hours */
             ytdlp_update_interval_hours?: number | null;
+            /** Daily Download Cap */
+            daily_download_cap?: number | null;
+            /** Daily Auth Cap */
+            daily_auth_cap?: number | null;
+            /** Video Delay Min Seconds */
+            video_delay_min_seconds?: number | null;
+            /** Video Delay Max Seconds */
+            video_delay_max_seconds?: number | null;
         };
         /** SettingsOut */
         SettingsOut: {
@@ -1771,7 +1966,7 @@ export interface operations {
             };
         };
     };
-    retry_api_jobs__job_id__retry_post: {
+    approve_api_jobs__job_id__approve_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1781,6 +1976,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_api_jobs__job_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RetryRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1974,6 +2204,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fetch_subtitles_api_videos__video_pk__subtitles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_pk: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -2758,7 +3019,7 @@ export interface operations {
             };
         };
     };
-    cookie_status_api_cookies_get: {
+    list_accounts_api_accounts_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2773,16 +3034,115 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CookieStatus"];
+                    "application/json": components["schemas"]["AccountOut"][];
                 };
             };
         };
     };
-    import_cookies_api_cookies_post: {
+    create_account_api_accounts_post: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_account_api_accounts__account_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_account_api_accounts__account_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_cookies_api_accounts__account_id__cookies_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+            };
             cookie?: never;
         };
         /** @description Netscape cookies.txt export (other sites' cookies are dropped) */
@@ -2798,16 +3158,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CookieImportOut"];
+                    "application/json": components["schemas"]["AccountImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
-    delete_cookies_api_cookies_delete: {
+    delete_cookies_api_accounts__account_id__cookies_delete: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                account_id: number;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2819,9 +3190,49 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
-    test_cookies_api_cookies_test_post: {
+    test_account_api_accounts__account_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CookieHealth"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    policy_status_api_policy_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2836,7 +3247,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CookieHealth"];
+                    "application/json": components["schemas"]["PolicyStatus"];
                 };
             };
         };

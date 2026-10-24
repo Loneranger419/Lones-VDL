@@ -16,9 +16,20 @@ from sqlalchemy.orm import sessionmaker
 
 from lones_vdl.config import Settings
 from lones_vdl.db import utcnow
-from lones_vdl.db.models import ACTIVE_JOB_STATUSES, Job, JobKind, JobStage, JobStatus
+from lones_vdl.db.models import (
+    ACTIVE_JOB_STATUSES,
+    Account,
+    AccountRole,
+    AuthTier,
+    Job,
+    JobKind,
+    JobStage,
+    JobStatus,
+)
 from lones_vdl.events import EventBus
 from lones_vdl.schemas import JobOut, JobProgress
+from lones_vdl.services import policy as policy_service
+from lones_vdl.services.policy import Policy
 from lones_vdl.ytdlp import ErrorKind
 
 # Higher runs first within a worker lane.
@@ -28,6 +39,9 @@ PRIORITY_WATCH_CHECK = 30  # scheduled channel check
 PRIORITY_PLAYLIST = 20  # videos from a playlist
 PRIORITY_NEW_UPLOAD = 10  # new videos found by a channel check
 PRIORITY_BACKFILL = 0  # a channel's back catalogue
+
+# Most due jobs examined per claim; the policy may hold back the first ones.
+CANDIDATE_LIMIT = 200
 
 # Failures that a fresh cookie import can fix.
 COOKIE_ERRORS = (ErrorKind.COOKIES_MISSING, ErrorKind.COOKIES_INVALID)
@@ -121,42 +135,61 @@ def active_expand_for_url(db: DbSession, url: str) -> Job | None:
     ).first()
 
 
-def claim_next(db: DbSession, kinds: Iterable[str]) -> Job | None:
-    """Mark the next due queued job of these kinds as running. Single process: no locking."""
-    job = db.scalars(
+def claim_next(db: DbSession, kinds: Iterable[str], policy: Policy | None = None) -> Job | None:
+    """Mark the next due, policy-approved queued job of these kinds as running.
+
+    Single process: no locking. A job the policy holds back (pause, delay, caps) is skipped,
+    so a lower-priority job that may run still does."""
+    now = utcnow()
+    candidates = db.scalars(
         select(Job)
         .where(
             Job.status == JobStatus.QUEUED,
             Job.kind.in_(list(kinds)),
-            Job.next_attempt_at <= utcnow(),
+            Job.next_attempt_at <= now,
         )
         .order_by(Job.priority.desc(), Job.next_attempt_at, Job.id)
-        .limit(1)
-    ).first()
-    if job is None:
-        return None
-    job.status = JobStatus.RUNNING
-    job.stage = JobStage.WAITING
-    job.attempts += 1
-    job.started_at = utcnow()
-    job.progress = None
-    return job
+        .limit(CANDIDATE_LIMIT)
+    ).all()
+    snapshot = policy.snapshot(db, now) if policy else None
+    for job in candidates:
+        if snapshot is not None and snapshot.ready_at(job) > now:
+            continue
+        job.status = JobStatus.RUNNING
+        job.stage = JobStage.WAITING
+        job.attempts += 1
+        job.started_at = now
+        job.progress = None
+        return job
+    return None
 
 
-def seconds_until_next_due(db: DbSession, kinds: Iterable[str]) -> float | None:
-    when = db.scalars(
-        select(Job.next_attempt_at)
+def seconds_until_next_due(
+    db: DbSession, kinds: Iterable[str], policy: Policy | None = None
+) -> float | None:
+    """Seconds until some queued job of these kinds may start (0 = now); None if none queued."""
+    now = utcnow()
+    jobs = db.scalars(
+        select(Job)
         .where(Job.status == JobStatus.QUEUED, Job.kind.in_(list(kinds)))
         .order_by(Job.next_attempt_at)
-        .limit(1)
-    ).first()
-    if when is None:
+        .limit(CANDIDATE_LIMIT)
+    ).all()
+    if not jobs:
         return None
-    return max((when - utcnow()).total_seconds(), 0.0)
+    snapshot = policy.snapshot(db, now) if policy else None
+    ready = [
+        max(job.next_attempt_at, snapshot.ready_at(job) if snapshot else job.next_attempt_at)
+        for job in jobs
+    ]
+    return max((min(ready) - now).total_seconds(), 0.0)
 
 
 def recover_interrupted(db: DbSession) -> list[int]:
-    """Requeue jobs left 'running' by a crash or restart, without charging an attempt."""
+    """Requeue jobs left 'running' by a crash or restart, without charging an attempt.
+
+    Their open access attempts are closed but still count toward the daily caps."""
+    policy_service.mark_interrupted(db)
     jobs = db.scalars(select(Job).where(Job.status == JobStatus.RUNNING)).all()
     for job in jobs:
         job.status = JobStatus.QUEUED
@@ -167,21 +200,52 @@ def recover_interrupted(db: DbSession) -> list[int]:
 
 
 def cancel_queued(db: DbSession, job: Job) -> None:
-    if job.status != JobStatus.QUEUED:
+    if job.status not in (JobStatus.QUEUED, JobStatus.AWAITING_APPROVAL):
         raise JobStateError(f"job is {job.status}")
     job.status = JobStatus.CANCELLED
     job.stage = JobStage.DONE
     job.finished_at = utcnow()
 
 
-def retry(db: DbSession, job: Job) -> None:
+def approve(db: DbSession, job: Job) -> None:
+    """Allow a job waiting on the personal account to run with it (this job only)."""
+    if job.status != JobStatus.AWAITING_APPROVAL:
+        raise JobStateError(f"job is {job.status}, not awaiting approval")
+    job.status = JobStatus.QUEUED
+    job.stage = JobStage.WAITING
+    job.approved_at = utcnow()
+    job.error_kind = None
+    job.error_message = None
+    job.next_attempt_at = utcnow()
+
+
+def retry(db: DbSession, job: Job, account: Account | None = None) -> None:
+    """Run a failed/cancelled job again.
+
+    Without an account it starts over anonymous (the ladder runs again). With one, the user
+    chose that account for this job; the personal account counts as approval."""
     if job.status not in (JobStatus.FAILED, JobStatus.CANCELLED):
         raise JobStateError(f"job is {job.status}")
+    if account is not None:
+        if not account.enabled:
+            raise JobStateError("that account is disabled")
+        if account.role == AccountRole.PERSONAL and job.kind != JobKind.DOWNLOAD:
+            raise JobStateError("only a single video can use the personal account")
     if job.video_id and active_job_for(db, job.platform, job.video_id):
         raise JobStateError("another job for this video is active")
     if job.kind == JobKind.EXPAND and active_expand_for_url(db, job.url):
         raise JobStateError("this playlist/channel is already being listed")
     requeue(job)
+    options = {k: v for k, v in (job.options or {}).items() if k != "account_id"}
+    job.approved_at = None
+    if account is None:
+        job.auth_tier = AuthTier.ANONYMOUS
+    else:
+        personal = account.role == AccountRole.PERSONAL
+        job.auth_tier = AuthTier.PERSONAL if personal else AuthTier.ALTERNATE
+        job.approved_at = utcnow() if personal else None
+        options["account_id"] = account.id
+    job.options = options or None
 
 
 def requeue(job: Job) -> None:
@@ -195,10 +259,13 @@ def requeue(job: Job) -> None:
     job.finished_at = None
 
 
-def requeue_cookie_failures(db: DbSession) -> list[Job]:
-    """After a cookie import: retry jobs that failed only because of cookies."""
+def requeue_cookie_failures(db: DbSession, extra: tuple[str, ...] = ()) -> list[Job]:
+    """After a cookie import: retry jobs that failed only because of cookies.
+
+    `extra` adds error kinds the imported account can fix (members-only for a personal one)."""
+    kinds = [*COOKIE_ERRORS, *extra]
     jobs = db.scalars(
-        select(Job).where(Job.status == JobStatus.FAILED, Job.error_kind.in_(COOKIE_ERRORS))
+        select(Job).where(Job.status == JobStatus.FAILED, Job.error_kind.in_(kinds))
     ).all()
     requeued = []
     for job in jobs:

@@ -34,8 +34,13 @@ class Settings(BaseSettings):
     cookie_secure: bool = False
 
     # Downloads
-    download_concurrency: int = Field(default=1, ge=1, le=8)
+    # Total tries per job: 1 + up to 2 transient retries on the same session (download policy).
     download_max_attempts: int = Field(default=3, ge=1)
+    # Download policy defaults (editable at runtime). Starting points, not known-safe limits.
+    daily_download_cap: int = Field(default=50, ge=1)
+    daily_auth_cap: int = Field(default=10, ge=0)
+    video_delay_min_seconds: float = Field(default=15.0, ge=0)
+    video_delay_max_seconds: float = Field(default=30.0, ge=0)
     default_quality: str = "best"
     # Hours between checks of channels with auto-archive enabled (0 disables).
     channel_watch_interval_hours: float = Field(default=6.0, ge=0)
@@ -60,7 +65,12 @@ class Settings(BaseSettings):
 
     @property
     def cookies_file(self) -> Path:
+        """The pre-accounts single cookie jar; only read once, to adopt it as an account."""
         return self.secrets_dir / "cookies.txt"
+
+    @property
+    def accounts_dir(self) -> Path:
+        return self.secrets_dir / "accounts"
 
     @property
     def ytdlp_dir(self) -> Path:

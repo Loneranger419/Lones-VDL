@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Any
 
 from sqlalchemy import JSON, BigInteger, ForeignKey, Index, String, Text, UniqueConstraint
@@ -224,17 +224,38 @@ class JobKind(StrEnum):
     EXPAND = "expand"  # list a playlist/channel and queue what is new
     VERIFY = "verify"
     RESCAN = "rescan"
+    SUBTITLES = "subtitles"  # fetch captions for an archived video, on request
 
 
 class JobStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
+    AWAITING_APPROVAL = "awaiting_approval"  # needs the personal account; waits for the user
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
 
-ACTIVE_JOB_STATUSES = (JobStatus.QUEUED, JobStatus.RUNNING)
+ACTIVE_JOB_STATUSES = (JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.AWAITING_APPROVAL)
+
+
+class AccountRole(StrEnum):
+    ALTERNATE = "alternate"  # dedicated age-verified account, tried when anonymous is refused
+    PERSONAL = "personal"  # only with explicit per-job approval
+
+
+class AuthTier(IntEnum):
+    """How much access a job may use. A job only moves up, one tier at a time."""
+
+    ANONYMOUS = 0
+    ALTERNATE = 1
+    PERSONAL = 2
+
+
+class AttemptKind(StrEnum):
+    VIDEO = "video"
+    LISTING = "listing"
+    TEST = "test"
 
 
 class JobStage(StrEnum):
@@ -267,6 +288,9 @@ class Job(Base):
     error_kind: Mapped[str | None] = mapped_column(String(30))
     error_message: Mapped[str | None] = mapped_column(Text)
     ytdlp_version: Mapped[str | None] = mapped_column(String(40))
+    # Highest AuthTier the job may use next. Starts anonymous; see services/policy.
+    auth_tier: Mapped[int] = mapped_column(default=AuthTier.ANONYMOUS, server_default="0")
+    approved_at: Mapped[datetime | None]
     options: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     parent_pk: Mapped[int | None] = mapped_column(
@@ -279,3 +303,39 @@ class Job(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
+
+
+class Account(Base):
+    """A signed-in identity whose cookies yt-dlp may use. Cookie values live in a 0600 file under
+    secrets/accounts/, never in the database."""
+
+    __tablename__ = "accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    label: Mapped[str] = mapped_column(String(100), unique=True)
+    role: Mapped[str] = mapped_column(String(20), default=AccountRole.ALTERNATE)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    health_status: Mapped[str | None] = mapped_column(String(20))
+    health_checked_at: Mapped[datetime | None]
+    health_detail: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class AccessAttempt(Base):
+    """One request cycle to the platform. The source for daily caps, the gap between
+    authenticated attempts, and anonymous success rates."""
+
+    __tablename__ = "access_attempts"
+    __table_args__ = (Index("ix_access_attempts_started_at", "started_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_pk: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
+    # NULL = anonymous.
+    account_pk: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"))
+    kind: Mapped[str] = mapped_column(String(20), default=AttemptKind.VIDEO)
+    started_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Set once the media download begins; only these count toward the daily caps.
+    download_started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
+    # NULL while running; "ok", an ErrorKind value, or "interrupted" after a restart.
+    outcome: Mapped[str | None] = mapped_column(String(30))

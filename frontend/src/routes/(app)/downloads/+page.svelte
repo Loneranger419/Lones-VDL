@@ -11,15 +11,17 @@
 	import { keys, queries, type JobQuery } from '#lib/api/queries.js';
 	import PageHeader from '#lib/components/app/page-header.svelte';
 	import AddDownloadForm from '#lib/components/app/add-download-form.svelte';
+	import PolicyCard from '#lib/components/app/policy-card.svelte';
 	import JobRow from '#lib/components/app/job-row.svelte';
 	import EmptyState from '#lib/components/app/empty-state.svelte';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 
-	type Tab = 'active' | 'failed' | 'done';
+	type Tab = 'active' | 'approval' | 'failed' | 'done';
 	const TAB_QUERIES: Record<Tab, JobQuery> = {
 		active: { status: ['queued', 'running'], limit: 200 },
+		approval: { status: ['awaiting_approval'], limit: 200 },
 		failed: { status: ['failed'], limit: 200 },
 		done: { status: ['completed', 'cancelled'], limit: 100 }
 	};
@@ -46,6 +48,7 @@
 	const c = $derived(counts.data ?? {});
 	const tabCount = $derived({
 		active: (c.queued ?? 0) + (c.running ?? 0),
+		approval: c.awaiting_approval ?? 0,
 		failed: c.failed ?? 0,
 		done: (c.completed ?? 0) + (c.cancelled ?? 0)
 	});
@@ -82,6 +85,11 @@
 	description="Add videos, playlists, or channels and follow their progress."
 />
 
+<p class="-mt-3 mb-6 rounded-lg bg-warning/10 px-3 py-2 text-sm">
+	Downloads run one at a time, with daily limits and a short delay between videos, to avoid YouTube
+	rate limits.
+</p>
+
 <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
 	<section class="order-2 min-w-0 xl:order-1">
 		<Tabs.Root value={tab} onValueChange={setTab}>
@@ -92,6 +100,13 @@
 								>{tabCount.active}</span
 							>{/if}
 					</Tabs.Trigger>
+					{#if tabCount.approval || tab === 'approval'}
+						<Tabs.Trigger value="approval">
+							Needs approval {#if tabCount.approval}<span class="ml-1 text-warning tabular-nums"
+									>{tabCount.approval}</span
+								>{/if}
+						</Tabs.Trigger>
+					{/if}
 					<Tabs.Trigger value="failed">
 						Failed {#if tabCount.failed}<span class="ml-1 text-brand-red tabular-nums"
 								>{tabCount.failed}</span
@@ -121,6 +136,13 @@
 			</div>
 		</Tabs.Root>
 
+		{#if tab === 'approval'}
+			<p class="mb-3 text-sm text-muted-foreground">
+				These videos need your personal account, for example because they are members-only. Nothing
+				uses it until you approve a video, one at a time.
+			</p>
+		{/if}
+
 		{#if jobs.isPending}
 			<div class="space-y-2">
 				{#each { length: 4 }, i (i)}<Skeleton class="h-16 w-full rounded-xl" />{/each}
@@ -142,6 +164,12 @@
 				title="Nothing downloading"
 				description="Paste a link to start archiving. Channel auto-archive adds new uploads here automatically."
 			/>
+		{:else if tab === 'approval'}
+			<EmptyState
+				icon={CircleCheckIcon}
+				title="Nothing to approve"
+				description="Videos that need your personal account will wait here."
+			/>
 		{:else if tab === 'failed'}
 			<EmptyState
 				icon={CircleCheckIcon}
@@ -153,8 +181,8 @@
 		{/if}
 	</section>
 
-	<aside class="order-1 xl:order-2">
-		<Card.Root class="xl:sticky xl:top-20">
+	<aside class="order-1 space-y-6 xl:order-2">
+		<Card.Root>
 			<Card.Header>
 				<Card.Title>Add to archive</Card.Title>
 				<Card.Description>Video, playlist, or channel link.</Card.Description>
@@ -163,5 +191,6 @@
 				<AddDownloadForm bind:url />
 			</Card.Content>
 		</Card.Root>
+		<PolicyCard />
 	</aside>
 </div>

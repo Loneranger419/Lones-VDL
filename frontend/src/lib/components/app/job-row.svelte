@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
+	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Progress } from '#lib/components/ui/progress/index.js';
 	import { api, call, type Job } from '#lib/api/client.js';
-	import { keys } from '#lib/api/queries.js';
+	import { keys, queries } from '#lib/api/queries.js';
+	import { ROLE_LABELS } from '#lib/accounts.js';
 	import { live } from '#lib/api/events.svelte.js';
 	import { ago, bytes, duration, QUALITY_LABELS, speed } from '#lib/format.js';
 	import JobLogDialog from './job-log-dialog.svelte';
@@ -13,11 +15,14 @@
 	import ListIcon from '@lucide/svelte/icons/list-video';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import ScanIcon from '@lucide/svelte/icons/scan-search';
+	import CaptionsIcon from '@lucide/svelte/icons/captions';
 	import XIcon from '@lucide/svelte/icons/x';
 	import RotateIcon from '@lucide/svelte/icons/rotate-ccw';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import PlayIcon from '@lucide/svelte/icons/play';
+	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
+	import ApproveIcon from '@lucide/svelte/icons/shield-check';
 
 	let { job }: { job: Job } = $props();
 
@@ -25,8 +30,13 @@
 	let logOpen = $state(false);
 
 	const KindIcon = $derived(
-		{ download: FilmIcon, expand: ListIcon, verify: ShieldCheckIcon, rescan: ScanIcon }[job.kind] ??
-			FilmIcon
+		{
+			download: FilmIcon,
+			expand: ListIcon,
+			verify: ShieldCheckIcon,
+			rescan: ScanIcon,
+			subtitles: CaptionsIcon
+		}[job.kind] ?? FilmIcon
 	);
 	const live_ = $derived(live.progress[job.id]);
 	const percent = $derived((live_?.progress ?? job.progress ?? 0) * 100);
@@ -49,8 +59,11 @@
 		const parts: string[] = [];
 		if (job.kind === 'expand') parts.push(MODES[String(job.options?.mode ?? 'all')] ?? 'Listing');
 		else if (job.kind === 'download') parts.push(QUALITY_LABELS[job.quality] ?? job.quality);
+		else if (job.kind === 'subtitles') parts.push('Subtitles');
 		if (job.status === 'queued' && job.attempts > 0)
 			parts.push(`retry ${job.attempts + 1}/${job.max_attempts}`);
+		if (job.auth_tier === 1 && job.status !== 'completed') parts.push('alternate account');
+		if (job.auth_tier === 2 && job.status !== 'completed') parts.push('personal account');
 		if (job.finished_at) parts.push(ago(job.finished_at));
 		else if (job.status === 'queued') parts.push(`added ${ago(job.created_at)}`);
 		return parts.join(' · ');
@@ -65,6 +78,7 @@
 			if (r.ignored) bits.push(`${r.ignored} marked as seen`);
 			return bits.join(', ');
 		}
+		if (job.kind === 'subtitles') return 'Subtitles added';
 		if (job.kind === 'verify') {
 			return `${r.checked ?? 0} checked: ${r.ok ?? 0} OK, ${r.mismatch ?? 0} changed, ${r.missing ?? 0} missing`;
 		}
@@ -74,12 +88,31 @@
 		return '';
 	});
 
-	function act(path: 'cancel' | 'retry' | 'delete') {
+	type Action = { kind: 'cancel' | 'retry' | 'delete' | 'approve'; accountId?: number };
+
+	function act({ kind, accountId }: Action) {
 		const params = { params: { path: { job_id: job.id } } };
-		if (path === 'delete') return call(api.DELETE('/api/jobs/{job_id}', params));
-		if (path === 'cancel') return call(api.POST('/api/jobs/{job_id}/cancel', params));
-		return call(api.POST('/api/jobs/{job_id}/retry', params));
+		if (kind === 'delete') return call(api.DELETE('/api/jobs/{job_id}', params));
+		if (kind === 'cancel') return call(api.POST('/api/jobs/{job_id}/cancel', params));
+		if (kind === 'approve') return call(api.POST('/api/jobs/{job_id}/approve', params));
+		return call(
+			api.POST('/api/jobs/{job_id}/retry', {
+				...params,
+				body: accountId === undefined ? undefined : { account_id: accountId }
+			})
+		);
 	}
+
+	// Accounts a failed job can be retried with. The personal account is for single videos only.
+	const accounts = createQuery(() => ({
+		...queries.accounts(),
+		enabled: job.status === 'failed' || job.status === 'cancelled'
+	}));
+	const retryAccounts = $derived(
+		(accounts.data ?? []).filter(
+			(a) => a.enabled && a.status.present && (a.role === 'alternate' || job.kind === 'download')
+		)
+	);
 
 	const action = createMutation(() => ({
 		mutationFn: act,
@@ -91,6 +124,7 @@
 		{
 			running: 'bg-primary/15 text-primary',
 			queued: 'bg-muted text-muted-foreground',
+			awaiting_approval: 'bg-warning/15 text-warning',
 			completed: 'bg-success/15 text-success',
 			failed: 'bg-brand-red/15 text-brand-red',
 			cancelled: 'bg-muted text-muted-foreground'
@@ -161,6 +195,8 @@
 			{:else}
 				<p class="text-xs text-primary">{STAGES[live_?.stage ?? job.stage] ?? 'Working…'}</p>
 			{/if}
+		{:else if job.status === 'awaiting_approval'}
+			<p class="text-xs text-warning">{job.error_message}</p>
 		{:else if job.status === 'failed' || (job.status === 'queued' && job.error_message)}
 			<p class="text-xs text-brand-red">
 				{job.status === 'queued'
@@ -176,17 +212,58 @@
 		{#if job.status === 'completed' && job.video_pk}
 			{@render iconButton('Watch', PlayIcon, () => {}, `/watch/${job.video_pk}`)}
 		{/if}
-		{#if job.status === 'queued' || job.status === 'running'}
-			{@render iconButton('Cancel', XIcon, () => action.mutate('cancel'))}
+		{#if job.status === 'awaiting_approval'}
+			<Button
+				size="sm"
+				variant="outline"
+				disabled={action.isPending}
+				onclick={() => action.mutate({ kind: 'approve' })}
+			>
+				<ApproveIcon /> Approve
+			</Button>
+		{/if}
+		{#if job.status === 'queued' || job.status === 'running' || job.status === 'awaiting_approval'}
+			{@render iconButton('Cancel', XIcon, () => action.mutate({ kind: 'cancel' }))}
 		{/if}
 		{#if job.status === 'failed' || job.status === 'cancelled'}
-			{@render iconButton('Retry', RotateIcon, () => action.mutate('retry'))}
+			{@render iconButton('Retry', RotateIcon, () => action.mutate({ kind: 'retry' }))}
+			{#if retryAccounts.length}
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="ghost"
+								size="icon-sm"
+								aria-label="Retry with an account"
+								title="Retry with an account"
+								disabled={action.isPending}
+							>
+								<KeyRoundIcon />
+							</Button>
+						{/snippet}
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content align="end" class="w-60">
+						<DropdownMenu.Label>Retry signed in as…</DropdownMenu.Label>
+						{#each retryAccounts as account (account.id)}
+							<DropdownMenu.Item
+								onclick={() => action.mutate({ kind: 'retry', accountId: account.id })}
+							>
+								{account.label}
+								<span class="ml-auto text-xs text-muted-foreground"
+									>{ROLE_LABELS[account.role]}</span
+								>
+							</DropdownMenu.Item>
+						{/each}
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
+			{/if}
 		{/if}
 		{#if job.attempts > 0}
 			{@render iconButton('Log', FileTextIcon, () => (logOpen = true))}
 		{/if}
-		{#if job.status !== 'queued' && job.status !== 'running'}
-			{@render iconButton('Remove from list', TrashIcon, () => action.mutate('delete'))}
+		{#if job.status !== 'queued' && job.status !== 'running' && job.status !== 'awaiting_approval'}
+			{@render iconButton('Remove from list', TrashIcon, () => action.mutate({ kind: 'delete' }))}
 		{/if}
 	</div>
 </li>

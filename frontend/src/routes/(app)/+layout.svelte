@@ -9,7 +9,7 @@
 	import AppSidebar from '#lib/components/app/app-sidebar.svelte';
 	import BottomNav from '#lib/components/app/bottom-nav.svelte';
 	import TopBar from '#lib/components/app/top-bar.svelte';
-	import CookieBanner from '#lib/components/app/cookie-banner.svelte';
+	import AccessBanner from '#lib/components/app/access-banner.svelte';
 	import AddDownloadDialog from '#lib/components/app/add-download-dialog.svelte';
 	import Logo from '#lib/components/app/logo.svelte';
 	import type { LayoutProps } from './$types';
@@ -43,7 +43,7 @@
 		<AppSidebar />
 		<Sidebar.Inset class="min-w-0">
 			<TopBar />
-			<CookieBanner />
+			<AccessBanner />
 			<main class="flex-1 px-4 pt-5 pb-[calc(var(--bottom-nav-height)+1.5rem)] md:px-6 md:pb-10">
 				{@render children()}
 			</main>

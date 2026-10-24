@@ -1,7 +1,9 @@
 """Durable job queue: jobs live in SQLite; this loop claims and runs them in threads.
 
-Jobs run in lanes so slow work never blocks the rest: downloads (configurable concurrency),
-listing playlists/channels (one at a time), and maintenance such as verify/rescan (one).
+Jobs run in lanes so slow work never blocks the rest: downloads (one video at a time, by
+download policy), listing playlists/channels (one at a time), and maintenance such as
+verify/rescan (one). The policy (services/policy) decides when YouTube jobs may start and how
+a failure is answered: escalate to the next account, wait for approval, or pause on a rate limit.
 """
 
 from __future__ import annotations
@@ -16,12 +18,13 @@ from typing import Any, Protocol
 from sqlalchemy.orm import sessionmaker
 
 from lones_vdl.db import utcnow
-from lones_vdl.db.models import Job, JobKind, JobStage, JobStatus
+from lones_vdl.db.models import AuthTier, Job, JobKind, JobStage, JobStatus
 from lones_vdl.events import Wakeup
+from lones_vdl.services import accounts as account_service
 from lones_vdl.services import channels as channel_service
-from lones_vdl.services import cookies as cookie_service
 from lones_vdl.services import jobs as job_service
 from lones_vdl.services.jobs import JobReporter
+from lones_vdl.services.policy import Policy, register_rate_limit
 from lones_vdl.storage import archive
 from lones_vdl.ytdlp import Cancelled, CancelToken, ErrorKind, YtdlpError, YtdlpManager
 from lones_vdl.ytdlp.errors import MESSAGES, RETRYABLE, error_lines
@@ -59,10 +62,10 @@ class Lane:
     running: set[int] = field(default_factory=set)
 
 
-def default_lanes(download_concurrency: Callable[[], int]) -> list[Lane]:
+def default_lanes() -> list[Lane]:
     return [
-        Lane("download", (JobKind.DOWNLOAD,), download_concurrency),
-        Lane("listing", (JobKind.EXPAND,), lambda: 1),
+        Lane("download", (JobKind.DOWNLOAD,), lambda: 1),
+        Lane("listing", (JobKind.EXPAND, JobKind.SUBTITLES), lambda: 1),
         Lane("maintenance", (JobKind.VERIFY, JobKind.RESCAN), lambda: 1, needs_ytdlp=False),
     ]
 
@@ -76,7 +79,9 @@ class Worker:
         ytdlp: YtdlpManager,
         pipelines: dict[str, Pipeline],
         lanes: list[Lane],
+        policy: Policy,
     ) -> None:
+        self.policy = policy
         self.sessions = sessions
         self.reporter = reporter
         self.ytdlp = ytdlp
@@ -151,7 +156,7 @@ class Worker:
 
     def _claim(self, kinds: tuple[str, ...]) -> tuple[int, str] | None:
         with self.sessions.begin() as db:
-            job = job_service.claim_next(db, kinds)
+            job = job_service.claim_next(db, kinds, self.policy)
         if job is None:
             return None
         self.reporter.bus.publish("job", job_service.job_payload(job))
@@ -161,7 +166,7 @@ class Worker:
         if not kinds:
             return IDLE_POLL_SECONDS
         with self.sessions() as db:
-            due = job_service.seconds_until_next_due(db, kinds)
+            due = job_service.seconds_until_next_due(db, kinds, self.policy)
         return IDLE_POLL_SECONDS if due is None else min(max(due, 0.05), IDLE_POLL_SECONDS)
 
     async def _execute(self, lane: Lane, job_id: int, kind: str, token: CancelToken) -> None:
@@ -219,11 +224,10 @@ class Worker:
         with self.sessions() as db:
             job = db.get_one(Job, job_id)
         message = MESSAGES[kind]
-        if kind == ErrorKind.COOKIES_INVALID:
-            # Before the job's new status, so whoever reacts to it sees the cookie state too.
-            with self.sessions.begin() as db:
-                cookie_service.record_health(db, cookie_service.INVALID, message)
-        if kind in RETRYABLE and job.attempts < job.max_attempts:
+        rerouted = self._reroute(job, kind, message)
+        if rerouted is not None:
+            self.reporter.update(job_id, **rerouted)
+        elif kind in RETRYABLE and job.attempts < job.max_attempts:
             self.reporter.update(
                 job_id,
                 status=JobStatus.QUEUED,
@@ -247,3 +251,47 @@ class Worker:
                     channel_service.ignore(db, job.platform, job.video_id, IGNORE_CHILD_ON[kind])
         lines = error_lines(detail, limit=1) or detail.strip().splitlines()[-1:]
         logger.warning("job %s %s: %s", job_id, kind, lines[0][:300] if lines else "")
+
+    def _reroute(self, job: Job, kind: ErrorKind, message: str) -> dict[str, Any] | None:
+        """Download-policy answers that are neither a retry nor a final failure.
+
+        None of them charge an attempt: they are not the job's fault. Fields to apply, or None."""
+        refund = {"stage": JobStage.WAITING, "attempts": max(job.attempts - 1, 0)}
+        if kind == ErrorKind.RATE_LIMITED:
+            # Pause all YouTube work; never switch accounts to get around a rate limit.
+            with self.sessions.begin() as db:
+                until = register_rate_limit(db, message)
+            return {
+                **refund,
+                "status": JobStatus.QUEUED,
+                "error_kind": kind,
+                "error_message": message,
+                "next_attempt_at": until,
+            }
+        with self.sessions() as db:
+            if kind == ErrorKind.COOKIES_MISSING and job.auth_tier < AuthTier.ALTERNATE:
+                # Anonymous access was refused (login, age, or bot check): try the alternate.
+                if account_service.account_for_tier(self.policy.settings, db, AuthTier.ALTERNATE):
+                    return {
+                        **refund,
+                        "status": JobStatus.QUEUED,
+                        "auth_tier": AuthTier.ALTERNATE,
+                        "error_kind": None,
+                        "error_message": None,
+                        "next_attempt_at": utcnow(),
+                    }
+            if (
+                kind == ErrorKind.MEMBERS_ONLY
+                and job.kind == JobKind.DOWNLOAD
+                and job.auth_tier < AuthTier.PERSONAL
+                and account_service.account_for_tier(self.policy.settings, db, AuthTier.PERSONAL)
+            ):
+                # Only the personal account can have the membership, and only with approval.
+                return {
+                    **refund,
+                    "status": JobStatus.AWAITING_APPROVAL,
+                    "auth_tier": AuthTier.PERSONAL,
+                    "error_kind": kind,
+                    "error_message": message + " Approve to try the personal account.",
+                }
+        return None

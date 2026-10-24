@@ -22,7 +22,7 @@ def test_cookies_import_from_file(monkeypatch, tmp_path, capsys):
     source = tmp_path / "export.txt"
     source.write_text(EXPORT)
     assert cli.main(["cookies", "import", str(source), "--delete-source"]) == 0
-    stored = (tmp_path / "data" / "secrets" / "cookies.txt").read_text()
+    stored = (tmp_path / "data" / "secrets" / "accounts" / "1.txt").read_text()
     assert "SID" in stored and "paypal" not in stored
     assert not source.exists()
     assert "topsecret" not in capsys.readouterr().out
@@ -33,7 +33,7 @@ def test_cookies_import_from_stdin(monkeypatch, tmp_path):
     _env(monkeypatch, tmp_path)
     monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(EXPORT.encode())))
     assert cli.main(["cookies", "import", "-"]) == 0
-    assert (tmp_path / "data" / "secrets" / "cookies.txt").is_file()
+    assert (tmp_path / "data" / "secrets" / "accounts" / "1.txt").is_file()
     get_settings.cache_clear()
 
 
@@ -42,5 +42,5 @@ def test_cookies_import_rejects_export_without_login(monkeypatch, tmp_path):
     source = tmp_path / "export.txt"
     source.write_text(".youtube.com\tTRUE\t/\tTRUE\t4102444800\tPREF\tx\n")
     assert cli.main(["cookies", "import", str(source)]) == 1
-    assert not (tmp_path / "data" / "secrets" / "cookies.txt").exists()
+    assert not (tmp_path / "data" / "secrets" / "accounts" / "1.txt").exists()
     get_settings.cache_clear()

@@ -1,23 +1,25 @@
-"""Integrity verify, archive rescan, cookie management, runtime settings."""
+"""Integrity verify, archive rescan, account health, runtime settings."""
 
 from __future__ import annotations
 
 import shutil
 import sys
 
-from conftest import FAKE_YTDLP, PASSWORD, enqueue, services, wait_for_job, wait_idle
+from conftest import (
+    FAKE_YTDLP,
+    PASSWORD,
+    account_health,
+    add_account,
+    enqueue,
+    services,
+    wait_for_job,
+    wait_idle,
+)
 from fastapi.testclient import TestClient
 
 from lones_vdl.db.models import JobKind, Video
 from lones_vdl.main import create_app
 from lones_vdl.services.integrity import enqueue_maintenance
-
-COOKIES = (
-    "# Netscape HTTP Cookie File\n"
-    "#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t4102444800\tSID\tsupersecretvalue\n"
-    ".youtube.com\tTRUE\t/\tTRUE\t4102444800\tPREF\tf6=40000000\n"
-    ".google.com\tTRUE\t/\tTRUE\t4102444800\tNID\tgooglesecret\n"
-)
 
 
 def archived(client, *ids: str) -> dict[str, int]:
@@ -72,65 +74,30 @@ def test_rescan_reindexes_and_flags_missing(authed, settings):
     assert relinked["channel"]["handle"] == "@fakechannel"
 
 
-def test_cookie_import_status_test_and_delete(authed, settings):
-    empty = authed.get("/api/cookies").json()
-    assert empty["present"] is False
-
-    imported = authed.post("/api/cookies", content=COOKIES, headers={"content-type": "text/plain"})
-    assert imported.status_code == 200, imported.text
-    body = imported.json()
-    assert "supersecretvalue" not in imported.text and "googlesecret" not in imported.text
-    assert body["summary"]["kept"] == 2 and body["summary"]["dropped_domain"] == 1
-    assert body["status"]["login_cookies"] == {"SID": "2100-01-01"}
-    assert body["status"]["health"]["status"] == "untested"
-    assert "NID" not in settings.cookies_file.read_text()
-
-    status = authed.get("/api/cookies")
-    assert "supersecretvalue" not in status.text
-    assert status.json()["cookie_count"] == 2
-
-    tested = authed.post("/api/cookies/test").json()
-    assert tested["status"] == "ok"
-    settings.cookie_test_url = "https://youtu.be/rotrotrot01"
-    assert authed.post("/api/cookies/test").json()["status"] == "invalid"
-
-    assert authed.post("/api/cookies", content="not cookies").status_code == 422
-    assert authed.post("/api/cookies", content="x" * (1024 * 1024 + 1)).status_code == 413
-    assert authed.delete("/api/cookies").status_code == 204
-    gone = authed.get("/api/cookies").json()
-    assert gone["present"] is False and gone["health"]["status"] == "missing"
-
-
-def test_download_outcomes_update_cookie_health(authed):
-    authed.post("/api/cookies", content=COOKIES)
+def test_download_outcomes_update_account_health(authed):
+    account_id = add_account(authed)
+    # Anonymous is tried first; only a refused video makes the account do any work.
     wait_for_job(authed, enqueue(authed, "okokokokok1")["id"])
-    assert authed.get("/api/cookies").json()["health"]["status"] == "ok"
+    assert account_health(authed, account_id) == "untested"
+    wait_for_job(authed, enqueue(authed, "loginlogi01")["id"])
+    assert account_health(authed, account_id) == "ok"
     wait_for_job(authed, enqueue(authed, "rotrotrot01")["id"])
-    assert authed.get("/api/cookies").json()["health"]["status"] == "invalid"
-
-
-def test_cookie_import_requeues_cookie_failures(authed):
-    failed = wait_for_job(authed, enqueue(authed, "botbotbot01")["id"])
-    assert failed["error_kind"] == "cookies_missing"
-    other = wait_for_job(authed, enqueue(authed, "gonegone001")["id"])
-    imported = authed.post("/api/cookies", content=COOKIES).json()
-    assert imported["requeued_jobs"] == 1
-    assert wait_for_job(authed, failed["id"])["error_kind"] == "auth_required"
-    assert authed.get(f"/api/jobs/{other['id']}").json()["attempts"] == 1
+    assert account_health(authed, account_id) == "invalid"
 
 
 def test_runtime_settings_persist(authed, settings, fake_state):
     current = authed.get("/api/settings").json()
-    assert current["current"]["download_concurrency"] == 1
+    assert current["current"]["daily_download_cap"] == 50
+    assert "download_concurrency" not in current["current"]
     assert current["defaults"]["default_quality"] == "best"
 
     patched = authed.patch(
-        "/api/settings", json={"download_concurrency": 3, "default_quality": "720"}
+        "/api/settings", json={"daily_download_cap": 7, "default_quality": "720"}
     )
     assert patched.status_code == 200, patched.text
-    assert patched.json()["current"]["download_concurrency"] == 3
+    assert patched.json()["current"]["daily_download_cap"] == 7
     assert authed.patch("/api/settings", json={"default_quality": "8k"}).status_code == 422
-    assert authed.patch("/api/settings", json={"download_concurrency": 99}).status_code == 422
+    assert authed.patch("/api/settings", json={"daily_download_cap": 0}).status_code == 422
 
     # New downloads use the runtime default quality.
     assert enqueue(authed, "okokokokok1")["quality"] == "720"
@@ -138,7 +105,7 @@ def test_runtime_settings_persist(authed, settings, fake_state):
     app = create_app(settings, ytdlp_command=[sys.executable, str(FAKE_YTDLP)])
     with TestClient(app, headers={"x-lones-vdl": "1"}) as again:
         again.post("/api/auth/login", json={"password": PASSWORD})
-        assert again.get("/api/settings").json()["current"]["download_concurrency"] == 3
+        assert again.get("/api/settings").json()["current"]["daily_download_cap"] == 7
 
 
 def test_maintenance_conflict(authed):

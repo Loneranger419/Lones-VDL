@@ -76,26 +76,83 @@ def _set_password(args: argparse.Namespace) -> int:
 
 
 def _cookies_import(args: argparse.Namespace) -> int:
+    from sqlalchemy import select
+
     from lones_vdl.config import get_settings
-    from lones_vdl.services.cookies import CookieImportError, import_cookies
+    from lones_vdl.db import create_db_engine, make_sessionmaker, upgrade
+    from lones_vdl.db.models import Account
+    from lones_vdl.services import accounts as account_service
+    from lones_vdl.services.cookies import CookieImportError
 
     settings = get_settings()
     from_stdin = args.file == "-"
+    engine = create_db_engine(settings.database_path)
     try:
         if from_stdin:
             text = sys.stdin.buffer.read().decode("utf-8-sig", errors="replace")
         else:
             text = Path(args.file).read_text(encoding="utf-8-sig", errors="replace")
-        summary = import_cookies(settings, text)
-    except (OSError, CookieImportError) as exc:
+        upgrade(engine)
+        with make_sessionmaker(engine).begin() as db:
+            account = db.scalars(select(Account).where(Account.label == args.account)).first()
+            if account is None:
+                account = account_service.create(db, args.account, args.role)
+            summary = account_service.import_cookies(settings, account, text)
+            target = account_service.cookie_path(settings, account)
+    except (OSError, CookieImportError, account_service.AccountError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    finally:
+        engine.dispose()
     found = summary.auth_cookies.get("youtube", {})
-    print(f"imported {summary.kept} YouTube cookies to {settings.cookies_file}")
+    print(f"imported {summary.kept} YouTube cookies for account {args.account!r} ({target})")
     print("login cookies: " + ", ".join(f"{n} (expires {d})" for n, d in found.items()))
     if args.delete_source and not from_stdin:
         Path(args.file).unlink()
         print(f"deleted {args.file}")
+    return 0
+
+
+def _state_export(args: argparse.Namespace) -> int:
+    from lones_vdl.config import get_settings
+    from lones_vdl.services import state_transfer
+
+    try:
+        result = state_transfer.export_state(
+            get_settings(), Path(args.file), include_password=not args.no_password
+        )
+    except state_transfer.StateTransferError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    summary = ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in result.counts.items())
+    print(f"wrote {result.path} ({summary})")
+    print("accounts, cookies, the job queue and sessions are not included")
+    if not args.no_password:
+        print("the bundle contains the admin password hash; keep it private")
+    return 0
+
+
+def _state_import(args: argparse.Namespace) -> int:
+    from lones_vdl.config import get_settings
+    from lones_vdl.db import create_db_engine, upgrade
+    from lones_vdl.services import state_transfer
+
+    settings = get_settings()
+    try:
+        manifest = state_transfer.import_state(settings, Path(args.file), replace=args.replace)
+    except state_transfer.StateTransferError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    engine = create_db_engine(settings.database_path)
+    try:
+        upgrade(engine)  # bring a bundle from an older version up to date
+    finally:
+        engine.dispose()
+    counts = ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in manifest["counts"].items())
+    print(f"imported ({counts})")
+    print("next: start the app, add account cookies on the Health page, then run Rescan and Verify")
+    if not manifest.get("includes_password"):
+        print("the bundle has no password; use the setup screen or `lones-vdl set-password`")
     return 0
 
 
@@ -177,12 +234,40 @@ def main(argv: list[str] | None = None) -> int:
     )
     cookie_import.add_argument("file", help="cookies.txt exported from a browser, or - for stdin")
     cookie_import.add_argument(
+        "--account", default="Alternate", help="account label (created if new)"
+    )
+    cookie_import.add_argument(
+        "--role",
+        choices=["alternate", "personal"],
+        default="alternate",
+        help="role for a newly created account; personal is used only with approval",
+    )
+    cookie_import.add_argument(
         "--delete-source", action="store_true", help="delete the export after importing"
     )
     cookie_import.set_defaults(func=_cookies_import)
     cookie_commands.add_parser(
         "filter", help="filter a cookies.txt file in place or to another file", add_help=False
     )
+
+    state = commands.add_parser("state", help="move library state to another install")
+    state_commands = state.add_subparsers(dest="state_command", required=True)
+    state_export = state_commands.add_parser(
+        "export", help="write watch progress, collections, channels, ... to a bundle file"
+    )
+    state_export.add_argument("file", help="bundle to write, for example state.zip")
+    state_export.add_argument(
+        "--no-password", action="store_true", help="leave the admin password out of the bundle"
+    )
+    state_export.set_defaults(func=_state_export)
+    state_import = state_commands.add_parser("import", help="install a bundle; stop the app first")
+    state_import.add_argument("file", help="bundle written by `state export`")
+    state_import.add_argument(
+        "--replace",
+        action="store_true",
+        help="overwrite an install that already has data (the old database is kept)",
+    )
+    state_import.set_defaults(func=_state_import)
 
     ytdlp = commands.add_parser("ytdlp", help="manage the yt-dlp installation")
     ytdlp_commands = ytdlp.add_subparsers(dest="ytdlp_command", required=True)

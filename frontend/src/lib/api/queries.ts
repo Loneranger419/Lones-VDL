@@ -25,7 +25,8 @@ export const keys = {
 	creator: (id: number) => ['creators', id] as const,
 	collections: ['collections'] as const,
 	collection: (id: number) => ['collections', id] as const,
-	cookies: ['cookies'] as const,
+	accounts: ['accounts'] as const,
+	policy: ['policy'] as const,
 	stats: ['stats'] as const,
 	ytdlp: ['ytdlp'] as const,
 	settings: ['settings'] as const
@@ -120,10 +121,17 @@ export const queries = {
 					})
 				)
 		}),
-	cookies: () =>
+	accounts: () =>
 		queryOptions({
-			queryKey: keys.cookies,
-			queryFn: () => call(api.GET('/api/cookies'))
+			queryKey: keys.accounts,
+			queryFn: () => call(api.GET('/api/accounts'))
+		}),
+	/** Polled so a pause or a freed-up daily limit shows up without any other event. */
+	policy: () =>
+		queryOptions({
+			queryKey: keys.policy,
+			queryFn: () => call(api.GET('/api/policy')),
+			refetchInterval: 30_000
 		}),
 	stats: () =>
 		queryOptions({

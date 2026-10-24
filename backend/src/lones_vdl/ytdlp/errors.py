@@ -9,12 +9,14 @@ from enum import StrEnum
 class ErrorKind(StrEnum):
     COOKIES_MISSING = "cookies_missing"  # YouTube wants a signed-in session; no cookies set
     COOKIES_INVALID = "cookies_invalid"  # cookies rotated/expired
-    AUTH_REQUIRED = "auth_required"  # signed in, still refused (age/members/bot check)
+    AUTH_REQUIRED = "auth_required"  # signed in, still refused (age/bot check)
+    MEMBERS_ONLY = "members_only"  # needs a channel membership; never solved by a different login
     UNAVAILABLE = "unavailable"  # private, removed, region-locked, not yet live
     RATE_LIMITED = "rate_limited"
     FORBIDDEN = "forbidden"  # HTTP 403 on media; often missing PO token
     NETWORK = "network"
     FORMAT_UNAVAILABLE = "format_unavailable"
+    NO_SUBTITLES = "no_subtitles"  # a subtitle fetch found nothing
     YTDLP_MISSING = "ytdlp_missing"
     CONFLICT = "conflict"  # already archived / exists on disk
     UNSUPPORTED = "unsupported"
@@ -38,6 +40,9 @@ MESSAGES: dict[ErrorKind, str] = {
         "YouTube refused this video even with cookies. The account may need age verification "
         "or channel membership."
     ),
+    ErrorKind.MEMBERS_ONLY: (
+        "This video is for channel members. It needs an account with the membership."
+    ),
     ErrorKind.UNAVAILABLE: "The video is unavailable (private, removed, or region-locked).",
     ErrorKind.RATE_LIMITED: "YouTube is rate-limiting requests. Will retry later.",
     ErrorKind.FORBIDDEN: (
@@ -46,6 +51,7 @@ MESSAGES: dict[ErrorKind, str] = {
     ),
     ErrorKind.NETWORK: "Network error while talking to YouTube. Will retry.",
     ErrorKind.FORMAT_UNAVAILABLE: "The requested quality is not available for this video.",
+    ErrorKind.NO_SUBTITLES: "YouTube has no English subtitles for this video.",
     ErrorKind.YTDLP_MISSING: "yt-dlp is not installed yet.",
     ErrorKind.CONFLICT: "Already archived.",
     ErrorKind.UNSUPPORTED: "Unsupported URL.",
@@ -56,14 +62,17 @@ _COOKIES_INVALID = (
     "cookies are no longer valid",
     "cookies have likely been rotated",
 )
+_MEMBERS = (
+    "members-only",
+    "join this channel",
+    "channel's members",
+)
 _AUTH = (
     "sign in to confirm",
     "not a bot",
     "login required",
     "confirm your age",
     "age-restricted",
-    "members-only",
-    "join this channel",
     "use --cookies",
 )
 _UNAVAILABLE = (
@@ -114,6 +123,8 @@ def classify(output: str, *, has_cookies: bool) -> ErrorKind:
         return ErrorKind.COOKIES_INVALID
     if has(_UNAVAILABLE) and not has(("sign in to confirm",)):
         return ErrorKind.UNAVAILABLE
+    if has(_MEMBERS):
+        return ErrorKind.MEMBERS_ONLY
     if has(_AUTH):
         return ErrorKind.AUTH_REQUIRED if has_cookies else ErrorKind.COOKIES_MISSING
     if has(_FORMAT):

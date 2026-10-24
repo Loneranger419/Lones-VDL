@@ -51,12 +51,13 @@
 		</p>
 		<div class="mt-6 flex flex-wrap justify-center gap-2">
 			<Button size="lg" onclick={() => ui.openAdd()}><PlusIcon /> Add your first download</Button>
-			<Button size="lg" variant="outline" href="/health#cookies"
-				><KeyRoundIcon /> Set up YouTube access</Button
+			<Button size="lg" variant="outline" href="/health#accounts"
+				><KeyRoundIcon /> YouTube accounts</Button
 			>
 		</div>
 		<p class="mt-5 text-xs text-muted-foreground">
-			YouTube requires a cookies file from a signed-in browser before anything can be downloaded.
+			Most public videos download without signing in. Age-restricted ones need a dedicated YouTube
+			account, which you can add any time.
 		</p>
 	</section>
 {:else}

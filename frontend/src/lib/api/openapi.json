@@ -481,12 +481,56 @@
         }
       }
     },
+    "/api/jobs/{job_id}/approve": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Approve",
+        "description": "Let a job that needs the personal account (e.g. members-only) run with it.",
+        "operationId": "approve_api_jobs__job_id__approve_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/jobs/{job_id}/retry": {
       "post": {
         "tags": [
           "jobs"
         ],
         "summary": "Retry",
+        "description": "Run a failed job again. Without an account it starts over anonymous; with `account_id`\n(e.g. a private video) it uses that account, and the personal one counts as approval.",
         "operationId": "retry_api_jobs__job_id__retry_post",
         "parameters": [
           {
@@ -499,6 +543,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RetryRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -904,6 +965,49 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/videos/{video_pk}/subtitles": {
+      "post": {
+        "tags": [
+          "videos"
+        ],
+        "summary": "Fetch Subtitles",
+        "description": "Queue a download of this video's subtitles. Archiving skips them by default.",
+        "operationId": "fetch_subtitles_api_videos__video_pk__subtitles_post",
+        "parameters": [
+          {
+            "name": "video_pk",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Video Pk"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -1975,20 +2079,24 @@
         }
       }
     },
-    "/api/cookies": {
+    "/api/accounts": {
       "get": {
         "tags": [
-          "cookies"
+          "accounts"
         ],
-        "summary": "Cookie Status",
-        "operationId": "cookie_status_api_cookies_get",
+        "summary": "List Accounts",
+        "operationId": "list_accounts_api_accounts_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CookieStatus"
+                  "items": {
+                    "$ref": "#/components/schemas/AccountOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Accounts Api Accounts Get"
                 }
               }
             }
@@ -1997,21 +2105,71 @@
       },
       "post": {
         "tags": [
-          "cookies"
+          "accounts"
         ],
-        "summary": "Import Cookies",
-        "description": "Replace the cookie jar, then retry jobs that failed for lack of valid cookies.",
-        "operationId": "import_cookies_api_cookies_post",
+        "summary": "Create Account",
+        "operationId": "create_account_api_accounts_post",
         "requestBody": {
-          "description": "Netscape cookies.txt export (other sites' cookies are dropped)",
           "content": {
-            "text/plain": {
+            "application/json": {
               "schema": {
-                "type": "string"
+                "$ref": "#/components/schemas/AccountCreate"
               }
             }
           },
           "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/accounts/{account_id}": {
+      "patch": {
+        "tags": [
+          "accounts"
+        ],
+        "summary": "Update Account",
+        "operationId": "update_account_api_accounts__account_id__patch",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Account Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountUpdate"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
@@ -2019,7 +2177,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CookieImportOut"
+                  "$ref": "#/components/schemas/AccountOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -2028,25 +2196,144 @@
       },
       "delete": {
         "tags": [
-          "cookies"
+          "accounts"
         ],
-        "summary": "Delete Cookies",
-        "operationId": "delete_cookies_api_cookies_delete",
+        "summary": "Delete Account",
+        "operationId": "delete_account_api_accounts__account_id__delete",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Account Id"
+            }
+          }
+        ],
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
     },
-    "/api/cookies/test": {
+    "/api/accounts/{account_id}/cookies": {
       "post": {
         "tags": [
-          "cookies"
+          "accounts"
         ],
-        "summary": "Test Cookies",
-        "description": "Resolve an age-restricted video with the current cookies (no media download).",
-        "operationId": "test_cookies_api_cookies_test_post",
+        "summary": "Import Cookies",
+        "description": "Replace this account's cookies, then retry jobs that failed for lack of them.",
+        "operationId": "import_cookies_api_accounts__account_id__cookies_post",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountImportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "Netscape cookies.txt export (other sites' cookies are dropped)"
+        }
+      },
+      "delete": {
+        "tags": [
+          "accounts"
+        ],
+        "summary": "Delete Cookies",
+        "operationId": "delete_cookies_api_accounts__account_id__cookies_delete",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/accounts/{account_id}/test": {
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "summary": "Test Account",
+        "description": "Resolve an age-restricted video with this account (no media download).",
+        "operationId": "test_account_api_accounts__account_id__test_post",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Account Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2054,6 +2341,37 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CookieHealth"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/policy": {
+      "get": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "Policy Status",
+        "operationId": "policy_status_api_policy_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyStatus"
                 }
               }
             }
@@ -2310,6 +2628,125 @@
   },
   "components": {
     "schemas": {
+      "AccountCreate": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "alternate",
+              "personal"
+            ],
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "role"
+        ],
+        "title": "AccountCreate"
+      },
+      "AccountImportOut": {
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountOut"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary"
+          },
+          "requeued_jobs": {
+            "type": "integer",
+            "title": "Requeued Jobs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "account",
+          "summary",
+          "requeued_jobs"
+        ],
+        "title": "AccountImportOut"
+      },
+      "AccountOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "alternate",
+              "personal"
+            ],
+            "title": "Role"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CookieStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "role",
+          "enabled",
+          "created_at",
+          "status"
+        ],
+        "title": "AccountOut"
+      },
+      "AccountUpdate": {
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "title": "AccountUpdate"
+      },
       "AuthStatus": {
         "properties": {
           "setup_required": {
@@ -2881,29 +3318,6 @@
         ],
         "title": "CookieHealth"
       },
-      "CookieImportOut": {
-        "properties": {
-          "status": {
-            "$ref": "#/components/schemas/CookieStatus"
-          },
-          "summary": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Summary"
-          },
-          "requeued_jobs": {
-            "type": "integer",
-            "title": "Requeued Jobs"
-          }
-        },
-        "type": "object",
-        "required": [
-          "status",
-          "summary",
-          "requeued_jobs"
-        ],
-        "title": "CookieImportOut"
-      },
       "CookieStatus": {
         "properties": {
           "present": {
@@ -3325,6 +3739,22 @@
             ],
             "title": "Ytdlp Version"
           },
+          "auth_tier": {
+            "type": "integer",
+            "title": "Auth Tier"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
           "options": {
             "anyOf": [
               {
@@ -3431,6 +3861,8 @@
           "error_kind",
           "error_message",
           "ytdlp_version",
+          "auth_tier",
+          "approved_at",
           "options",
           "result",
           "parent_pk",
@@ -3484,6 +3916,88 @@
         ],
         "title": "PasswordRequest"
       },
+      "PolicyStatus": {
+        "properties": {
+          "downloads_24h": {
+            "type": "integer",
+            "title": "Downloads 24H"
+          },
+          "authenticated_24h": {
+            "type": "integer",
+            "title": "Authenticated 24H"
+          },
+          "daily_download_cap": {
+            "type": "integer",
+            "title": "Daily Download Cap"
+          },
+          "daily_auth_cap": {
+            "type": "integer",
+            "title": "Daily Auth Cap"
+          },
+          "paused_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paused Until"
+          },
+          "pause_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pause Reason"
+          },
+          "next_video_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Video At"
+          },
+          "anonymous_ok_7d": {
+            "type": "integer",
+            "title": "Anonymous Ok 7D"
+          },
+          "anonymous_refused_7d": {
+            "type": "integer",
+            "title": "Anonymous Refused 7D"
+          },
+          "anonymous_other_7d": {
+            "type": "integer",
+            "title": "Anonymous Other 7D"
+          }
+        },
+        "type": "object",
+        "required": [
+          "downloads_24h",
+          "authenticated_24h",
+          "daily_download_cap",
+          "daily_auth_cap",
+          "paused_until",
+          "pause_reason",
+          "next_video_at",
+          "anonymous_ok_7d",
+          "anonymous_refused_7d",
+          "anonymous_other_7d"
+        ],
+        "title": "PolicyStatus",
+        "description": "Use against the download policy's limits over the last 24 hours, and the pause."
+      },
       "ProgressUpdate": {
         "properties": {
           "position_seconds": {
@@ -3525,17 +4039,29 @@
         ],
         "title": "RelatedOut"
       },
+      "RetryRequest": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id",
+            "description": "run this job with this account (the personal one counts as approval)"
+          }
+        },
+        "type": "object",
+        "title": "RetryRequest"
+      },
       "RuntimeSettings": {
         "properties": {
           "default_quality": {
             "type": "string",
             "title": "Default Quality"
-          },
-          "download_concurrency": {
-            "type": "integer",
-            "maximum": 8.0,
-            "minimum": 1.0,
-            "title": "Download Concurrency"
           },
           "channel_watch_interval_hours": {
             "type": "number",
@@ -3556,15 +4082,40 @@
             "minimum": 0.0,
             "title": "Ytdlp Update Interval Hours",
             "description": "0 disables auto-update"
+          },
+          "daily_download_cap": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Daily Download Cap",
+            "description": "videos that start downloading per rolling 24 hours"
+          },
+          "daily_auth_cap": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Daily Auth Cap",
+            "description": "of those, how many may use an account (0 = anonymous only)"
+          },
+          "video_delay_min_seconds": {
+            "type": "number",
+            "title": "Video Delay Min Seconds",
+            "description": "shortest pause between videos"
+          },
+          "video_delay_max_seconds": {
+            "type": "number",
+            "title": "Video Delay Max Seconds",
+            "description": "longest pause between videos"
           }
         },
         "type": "object",
         "required": [
           "default_quality",
-          "download_concurrency",
           "channel_watch_interval_hours",
           "ytdlp_channel",
-          "ytdlp_update_interval_hours"
+          "ytdlp_update_interval_hours",
+          "daily_download_cap",
+          "daily_auth_cap",
+          "video_delay_min_seconds",
+          "video_delay_max_seconds"
         ],
         "title": "RuntimeSettings"
       },
@@ -3580,17 +4131,6 @@
               }
             ],
             "title": "Default Quality"
-          },
-          "download_concurrency": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Download Concurrency"
           },
           "channel_watch_interval_hours": {
             "anyOf": [
@@ -3628,6 +4168,50 @@
               }
             ],
             "title": "Ytdlp Update Interval Hours"
+          },
+          "daily_download_cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Download Cap"
+          },
+          "daily_auth_cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Auth Cap"
+          },
+          "video_delay_min_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Delay Min Seconds"
+          },
+          "video_delay_max_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Delay Max Seconds"
           }
         },
         "type": "object",

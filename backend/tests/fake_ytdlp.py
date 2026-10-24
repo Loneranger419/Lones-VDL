@@ -1,9 +1,14 @@
 """Stand-in for the yt-dlp CLI, run as a real subprocess by the tests.
 
 Behaviour is chosen by the video id prefix:
-    bot*     sign-in / bot check          rot*     cookies rotated + bot check
-    gone*    video unavailable            flaky*   HTTP 429 on the first resolve only
-    subfail* media ok, subtitle error     slow*    slow download (for cancel tests)
+    bot*      sign-in / bot check            rot*      cookies rotated + bot check
+    gone*     video unavailable              flaky*    HTTP 429 on the first resolve only
+    limited*  HTTP 429 on every resolve      slow*     slow download (for cancel tests)
+    subfail*  media ok, subtitle error       dlfmt*    resolves, then the download fails
+    nosubs*   a subtitle fetch finds no captions (media downloads never write subtitles unless
+              asked: they come only from `--write-subs`)
+    login*    bot check unless cookies       private*  private video unless cookies
+    member*   members-only unless the cookies hold MEMBERSHIP
     anything else: success
 --flat-playlist listings come from $FAKE_YTDLP_STATE/listings.json:
     {"videos": [entries], "streams": [...], "playlist": [...]}; a missing tab key means the
@@ -80,10 +85,22 @@ def resolve(args: list[str]) -> None:
     url = args[-1]
     vid = video_id_from(url)
     cookies = arg_after(args, "--cookies")
+    record("calls", f"{vid} {'auth' if cookies else 'anon'}")
     if cookies:
         record("cookies_seen", cookies)
         if not Path(cookies).is_file():
             fail("ERROR: cookie file passed but missing")
+    if vid.startswith("login") and not cookies:
+        fail(f"ERROR: [youtube] {vid}: Sign in to confirm you’re not a bot.")
+    if vid.startswith("member") and not (cookies and "MEMBERSHIP" in Path(cookies).read_text()):
+        fail(
+            f"ERROR: [youtube] {vid}: Join this channel to get access to members-only content "
+            "like this video, and other exclusive perks."
+        )
+    if vid.startswith("private") and not cookies:
+        fail(f"ERROR: [youtube] {vid}: Private video. Sign in if you've been granted access")
+    if vid.startswith("limited"):
+        fail("ERROR: [youtube] limited: HTTP Error 429: Too Many Requests")
     if vid.startswith("bot"):
         fail(f"ERROR: [youtube] {vid}: Sign in to confirm you’re not a bot.")
     if vid.startswith("rot"):
@@ -109,6 +126,8 @@ def download(args: list[str]) -> None:
     info = json.loads(Path(arg_after(args, "--load-info-json")).read_text(encoding="utf-8"))
     workdir = Path(arg_after(args, "--paths"))
     vid = info["id"]
+    if vid.startswith("dlfmt"):
+        fail("ERROR: [youtube] Requested format is not available.")
     if vid.startswith("slow"):
         for i in range(300):
             progress(i, 300, "247")
@@ -122,10 +141,26 @@ def download(args: list[str]) -> None:
     (workdir / "media.f247.webm.part").write_bytes(b"leftover")
     (workdir / "info.info.json").write_text(json.dumps({**info, "downloaded": True}))
     (workdir / "thumbnail.jpg").write_bytes(b"\xff\xd8\xff")
-    (workdir / "subtitles").mkdir(exist_ok=True)
+    if "--write-subs" in args:
+        (workdir / "subtitles").mkdir(exist_ok=True)
+        (workdir / "subtitles" / "subs.en.vtt").write_text("WEBVTT\n")
+        if vid.startswith("subfail"):
+            fail("ERROR: Unable to download video subtitles for 'de': HTTP Error 429")
+
+
+def subtitles(args: list[str]) -> None:
+    vid = video_id_from(args[-1])
+    cookies = arg_after(args, "--cookies")
+    record("subtitle_calls", f"{vid} {'auth' if cookies else 'anon'}")
+    workdir = Path(arg_after(args, "--paths"))
+    if vid.startswith("limited"):
+        fail(
+            "ERROR: Unable to download video subtitles for 'en': HTTP Error 429: Too Many Requests"
+        )
+    if vid.startswith("nosubs"):
+        return
+    (workdir / "subtitles").mkdir(parents=True, exist_ok=True)
     (workdir / "subtitles" / "subs.en.vtt").write_text("WEBVTT\n")
-    if vid.startswith("subfail"):
-        fail("ERROR: Unable to download video subtitles for 'de': HTTP Error 429")
 
 
 CHANNEL_ID = "UC" + "x" * 22
@@ -134,7 +169,7 @@ DEFAULT_LISTINGS = {"videos": ["okokokokok1", "okokokokok2"], "playlist": ["okok
 
 def listing(args: list[str]) -> None:
     url = args[-1]
-    record("listings", url)
+    record("listings", f"{url} {'auth' if arg_after(args, '--cookies') else 'anon'}")
     state = os.environ.get("FAKE_YTDLP_STATE")
     path = Path(state) / "listings.json" if state else None
     listings = (
@@ -187,6 +222,8 @@ def main() -> None:
         print(VERSION)
     elif "--flat-playlist" in args:
         listing(args)
+    elif "--skip-download" in args:
+        subtitles(args)
     elif "--dump-single-json" in args:
         resolve(args)
     elif "--load-info-json" in args:

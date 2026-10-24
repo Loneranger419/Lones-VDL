@@ -138,7 +138,8 @@ def test_listing_cookie_failure_is_retried_after_import(authed):
     job = add(authed, "https://www.youtube.com/@botchannel")
     done = wait_for_job(authed, job["id"])
     assert done["error_kind"] == "cookies_missing"
-    imported = authed.post("/api/cookies", content=COOKIES)
+    account = authed.post("/api/accounts", json={"label": "Alternate", "role": "alternate"})
+    imported = authed.post(f"/api/accounts/{account.json()['id']}/cookies", content=COOKIES)
     assert imported.status_code == 200, imported.text
     assert imported.json()["requeued_jobs"] == 1
     done = wait_for_job(authed, job["id"])

@@ -64,13 +64,14 @@ class YtdlpManager:
     def installed(self) -> bool:
         return self.command() is not None
 
-    def runner(self) -> YtdlpRunner:
+    def runner(self, cookies_file: Path | None = None) -> YtdlpRunner:
+        """A runner; anonymous unless given an account's cookie file."""
         command = self.command()
         if command is None:
             raise YtdlpError(ErrorKind.YTDLP_MISSING)
         return YtdlpRunner(
             command,
-            cookies_file=self.settings.cookies_file,
+            cookies_file=cookies_file,
             tmp_dir=self.settings.data_dir / "tmp",
         )
 
@@ -83,14 +84,14 @@ class YtdlpManager:
         return self._version
 
     @contextlib.contextmanager
-    def using(self) -> Iterator[YtdlpRunner]:
+    def using(self, cookies_file: Path | None = None) -> Iterator[YtdlpRunner]:
         """Hold while running yt-dlp; updates wait for all holders to finish."""
         with self._cond:
             while self._updating:
                 self._cond.wait()
             self._active += 1
         try:
-            yield self.runner()
+            yield self.runner(cookies_file)
         finally:
             with self._cond:
                 self._active -= 1

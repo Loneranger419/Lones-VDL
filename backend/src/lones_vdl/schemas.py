@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,6 +35,8 @@ class JobOut(OrmModel):
     error_kind: str | None
     error_message: str | None
     ytdlp_version: str | None
+    auth_tier: int
+    approved_at: datetime | None
     options: dict[str, Any] | None
     result: dict[str, Any] | None
     parent_pk: int | None
@@ -234,6 +236,55 @@ class CookieStatus(BaseModel):
     login_cookies: dict[str, str] = Field(default_factory=dict)
     login_expires: str | None = None
     health: CookieHealth | None = None
+
+
+class AccountOut(BaseModel):
+    id: int
+    label: str
+    role: Literal["alternate", "personal"]
+    enabled: bool
+    created_at: datetime
+    # Cookie state: names and expiry dates only, never values.
+    status: CookieStatus
+
+
+class AccountCreate(BaseModel):
+    label: str = Field(min_length=1, max_length=100)
+    role: Literal["alternate", "personal"]
+
+
+class AccountUpdate(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=100)
+    enabled: bool | None = None
+
+
+class AccountImportOut(BaseModel):
+    account: AccountOut
+    summary: dict[str, Any]
+    requeued_jobs: int
+
+
+class RetryRequest(BaseModel):
+    account_id: int | None = Field(
+        default=None,
+        description="run this job with this account (the personal one counts as approval)",
+    )
+
+
+class PolicyStatus(BaseModel):
+    """Use against the download policy's limits over the last 24 hours, and the pause."""
+
+    downloads_24h: int
+    authenticated_24h: int
+    daily_download_cap: int
+    daily_auth_cap: int
+    paused_until: datetime | None
+    pause_reason: str | None
+    next_video_at: datetime | None
+    # Last 7 days of attempts that started without an account.
+    anonymous_ok_7d: int
+    anonymous_refused_7d: int
+    anonymous_other_7d: int
 
 
 class CookieImportOut(BaseModel):

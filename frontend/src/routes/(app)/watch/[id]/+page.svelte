@@ -26,6 +26,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import ListVideoIcon from '@lucide/svelte/icons/list-video';
 	import FilmIcon from '@lucide/svelte/icons/film';
+	import CaptionsIcon from '@lucide/svelte/icons/captions';
 
 	const SAVE_EVERY = 10; // seconds of playback between progress saves
 	const AUTOPLAY_KEY = 'lones-vdl:autoplay';
@@ -202,6 +203,21 @@
 		onError: (e) => toast.error(e.message)
 	}));
 
+	// Subtitles are not fetched while archiving; this asks for them (a job under Downloads).
+	let subtitlesRequestedFor = $state(0);
+	const fetchSubtitles = createMutation(() => ({
+		mutationFn: () =>
+			call(api.POST('/api/videos/{video_pk}/subtitles', { params: { path: { video_pk: id } } })),
+		onSuccess: () => {
+			subtitlesRequestedFor = id;
+			queryClient.invalidateQueries({ queryKey: keys.jobs });
+			toast.success('Fetching subtitles', {
+				description: 'They appear here when the download finishes. Progress is under Downloads.'
+			});
+		},
+		onError: (e) => toast.error(e.message)
+	}));
+
 	let expanded = $state(false);
 
 	const facts = $derived.by(() => {
@@ -305,6 +321,19 @@
 						>
 							{#if current.watched}<CheckIcon /> Watched{:else}<EyeIcon /> Mark watched{/if}
 						</Button>
+						{#if !current.subtitles?.length}
+							<Button
+								variant="outline"
+								size="sm"
+								onclick={() => fetchSubtitles.mutate()}
+								disabled={fetchSubtitles.isPending || subtitlesRequestedFor === id}
+							>
+								<CaptionsIcon />
+								<span class="hidden sm:inline">
+									{subtitlesRequestedFor === id ? 'Subtitles requested' : 'Get subtitles'}
+								</span>
+							</Button>
+						{/if}
 						<Button variant="outline" size="sm" href={mediaUrl.video(current.id)} download>
 							<DownloadIcon /> <span class="hidden sm:inline">File</span>
 						</Button>

@@ -103,7 +103,7 @@ def test_doctor_reports_missing_cookies_and_tests_url(settings, fake_state):
     report = Doctor(settings, manager).run(test_url="https://youtu.be/botbotbot01")
     checks = {c.name: c for c in report.checks}
     assert checks["yt-dlp"].status == "ok" and "2099.01.01" in checks["yt-dlp"].detail
-    assert checks["cookies"].status == "fail"
+    assert checks["cookies"].status == "warn"  # anonymous-only is allowed, but flagged
     assert checks["archive"].status in ("ok", "warn")
     assert checks["test download"].status == "fail"
     assert "signed-in" in checks["test download"].detail

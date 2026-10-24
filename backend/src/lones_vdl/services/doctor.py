@@ -94,13 +94,26 @@ class Doctor:
         return CheckOut(name=name, status=OK, detail=first[:200])
 
     def _cookies(self) -> CheckOut:
-        path = self.settings.cookies_file
-        if not path.is_file():
+        files = sorted(self.settings.accounts_dir.glob("*.txt"))
+        if not files:
             return CheckOut(
                 name="cookies",
-                status=FAIL,
-                detail="no cookies imported; YouTube currently refuses signed-out downloads",
+                status=WARN,
+                detail=(
+                    "no account cookies imported; only anonymous downloads work, so age-restricted "
+                    "videos and bot checks will fail"
+                ),
             )
+        parts: list[str] = []
+        worst = OK
+        for path in files:
+            result = self._cookie_file(path)
+            parts.append(f"account {path.stem}: {result.detail}")
+            if result.status == FAIL or (result.status == WARN and worst == OK):
+                worst = WARN
+        return CheckOut(name="cookies", status=worst, detail="; ".join(parts)[:1000])
+
+    def _cookie_file(self, path: Path) -> CheckOut:
         try:
             text = path.read_text(encoding="utf-8-sig", errors="replace")
         except OSError as exc:

@@ -46,10 +46,6 @@
 	}));
 
 	const qualityOptions = Object.entries(QUALITY_LABELS).map(([value, label]) => ({ value, label }));
-	const concurrencyOptions = Array.from({ length: 8 }, (_, i) => ({
-		value: String(i + 1),
-		label: i === 0 ? '1 at a time' : `${i + 1} at once`
-	}));
 	const intervalOptions = [
 		{ value: '0', label: 'Off' },
 		{ value: '1', label: 'Every hour' },
@@ -144,17 +140,65 @@
 						/>
 						<p class="text-xs text-muted-foreground">Best keeps the original AV1/VP9 streams.</p>
 					</div>
+					<div class="space-y-2 sm:col-span-2">
+						<p class="text-sm text-muted-foreground">
+							Videos download one at a time. These limits reduce how much YouTube sees from this
+							server; they are starting points, not guarantees against rate limits or account
+							restrictions.
+						</p>
+					</div>
 					<div class="space-y-2">
-						<Label>Simultaneous downloads</Label>
-						<SimpleSelect
-							class="w-full"
-							label="Simultaneous downloads"
-							options={concurrencyOptions}
-							value={String(draft.download_concurrency)}
-							onchange={(v) => draft && (draft.download_concurrency = Number(v))}
+						<Label for="daily-cap">Videos per day</Label>
+						<Input
+							id="daily-cap"
+							type="number"
+							min="1"
+							step="1"
+							bind:value={draft.daily_download_cap}
 						/>
 						<p class="text-xs text-muted-foreground">
-							More than 2 makes YouTube throttling likelier.
+							Over any rolling 24 hours. The queue resumes by itself when the limit frees up.
+						</p>
+					</div>
+					<div class="space-y-2">
+						<Label for="daily-auth-cap">Videos per day using an account</Label>
+						<Input
+							id="daily-auth-cap"
+							type="number"
+							min="0"
+							step="1"
+							bind:value={draft.daily_auth_cap}
+						/>
+						<p class="text-xs text-muted-foreground">
+							Counted within the limit above. 0 downloads anonymously only.
+						</p>
+					</div>
+					<div class="space-y-2 sm:col-span-2">
+						<Label for="delay-min">Pause between videos (seconds)</Label>
+						<div class="flex items-center gap-2">
+							<Input
+								id="delay-min"
+								class="w-24"
+								type="number"
+								min="15"
+								max="30"
+								step="1"
+								aria-label="Shortest pause in seconds"
+								bind:value={draft.video_delay_min_seconds}
+							/>
+							<span class="text-sm text-muted-foreground">to</span>
+							<Input
+								class="w-24"
+								type="number"
+								min="15"
+								max="30"
+								step="1"
+								aria-label="Longest pause in seconds"
+								bind:value={draft.video_delay_max_seconds}
+							/>
+						</div>
+						<p class="text-xs text-muted-foreground">
+							A random pause in this range (15 to 30) follows every video.
 						</p>
 					</div>
 					<div class="space-y-2">

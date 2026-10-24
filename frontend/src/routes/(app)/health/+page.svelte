@@ -10,7 +10,8 @@
 	import { keys, queries } from '#lib/api/queries.js';
 	import { ago, bytes } from '#lib/format.js';
 	import PageHeader from '#lib/components/app/page-header.svelte';
-	import CookiePanel from '#lib/components/app/cookie-panel.svelte';
+	import AccountsPanel from '#lib/components/app/accounts-panel.svelte';
+	import PolicyCard from '#lib/components/app/policy-card.svelte';
 	import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
 	import LoaderIcon from '@lucide/svelte/icons/loader-circle';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
@@ -115,7 +116,10 @@
 	{/if}
 
 	<div class="grid gap-6 xl:grid-cols-2">
-		<CookiePanel />
+		<div class="space-y-6">
+			<PolicyCard />
+			<AccountsPanel />
+		</div>
 
 		<div class="space-y-6">
 			<Card.Root>

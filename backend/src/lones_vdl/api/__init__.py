@@ -3,14 +3,15 @@
 from fastapi import APIRouter
 
 from lones_vdl.api import (
+    accounts,
     auth,
     channels,
     collections,
-    cookies,
     creators,
     events,
     health,
     jobs,
+    policy,
     settings,
     system,
     videos,
@@ -26,7 +27,8 @@ for module in (
     channels,
     creators,
     collections,
-    cookies,
+    accounts,
+    policy,
     settings,
     system,
 ):

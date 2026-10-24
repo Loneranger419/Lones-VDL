@@ -3,16 +3,17 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import * as Sidebar from '#lib/components/ui/sidebar/index.js';
 	import { queries } from '#lib/api/queries.js';
-	import { cookieProblem } from '#lib/cookies.js';
+	import { accountProblems, worstProblem } from '#lib/accounts.js';
 	import { isActive, mainNav, systemNav, type NavItem } from '#lib/nav.js';
 	import Logo from './logo.svelte';
 
 	const counts = createQuery(() => queries.jobCounts());
-	const cookies = createQuery(() => queries.cookies());
+	const accounts = createQuery(() => queries.accounts());
 
 	const activeJobs = $derived((counts.data?.queued ?? 0) + (counts.data?.running ?? 0));
 	const failedJobs = $derived(counts.data?.failed ?? 0);
-	const healthProblem = $derived(cookieProblem(cookies.data));
+	const awaiting = $derived(counts.data?.awaiting_approval ?? 0);
+	const healthProblem = $derived(worstProblem(accountProblems(accounts.data)));
 	const sidebar = Sidebar.useSidebar();
 </script>
 
@@ -26,7 +27,9 @@
 				</a>
 			{/snippet}
 		</Sidebar.MenuButton>
-		{#if nav.href === '/downloads' && activeJobs}
+		{#if nav.href === '/downloads' && awaiting}
+			<Sidebar.MenuBadge class="bg-warning/15 text-warning">{awaiting}</Sidebar.MenuBadge>
+		{:else if nav.href === '/downloads' && activeJobs}
 			<Sidebar.MenuBadge class="bg-primary/15 text-primary">{activeJobs}</Sidebar.MenuBadge>
 		{:else if nav.href === '/downloads' && failedJobs}
 			<Sidebar.MenuBadge class="bg-destructive/15 text-destructive">{failedJobs}</Sidebar.MenuBadge>

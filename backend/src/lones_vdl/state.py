@@ -15,12 +15,15 @@ from lones_vdl.events import EventBus
 from lones_vdl.jobs.scheduler import ChannelScheduler
 from lones_vdl.jobs.worker import Worker, default_lanes
 from lones_vdl.jobs.ytdlp_updates import YtdlpUpdater
+from lones_vdl.services import accounts as account_service
 from lones_vdl.services.auth import LoginThrottle
 from lones_vdl.services.downloads import DownloadPipeline
 from lones_vdl.services.expand import ExpandPipeline
 from lones_vdl.services.integrity import RescanPipeline, VerifyPipeline
 from lones_vdl.services.jobs import JobReporter
+from lones_vdl.services.policy import Policy
 from lones_vdl.services.runtime import RuntimeConfig
+from lones_vdl.services.subtitles import SubtitlesPipeline
 from lones_vdl.ytdlp import YtdlpManager
 
 
@@ -28,6 +31,7 @@ from lones_vdl.ytdlp import YtdlpManager
 class Services:
     settings: Settings
     runtime: RuntimeConfig
+    policy: Policy
     engine: Engine
     sessions: sessionmaker
     bus: EventBus
@@ -45,7 +49,10 @@ class Services:
         engine = create_db_engine(settings.database_path)
         upgrade(engine)
         sessions = make_sessionmaker(engine)
+        with sessions.begin() as db:
+            account_service.adopt_legacy_cookies(settings, db)
         runtime = RuntimeConfig(settings, sessions)
+        policy = Policy(settings, runtime, sessions)
         bus = EventBus()
         ytdlp = YtdlpManager(settings, command=ytdlp_command)
         reporter = JobReporter(sessions, bus)
@@ -54,18 +61,21 @@ class Services:
             reporter=reporter,
             ytdlp=ytdlp,
             pipelines={
-                JobKind.DOWNLOAD: DownloadPipeline(settings, sessions, ytdlp, reporter),
-                JobKind.EXPAND: ExpandPipeline(settings, sessions, ytdlp, reporter),
+                JobKind.DOWNLOAD: DownloadPipeline(settings, sessions, ytdlp, reporter, policy),
+                JobKind.EXPAND: ExpandPipeline(settings, sessions, ytdlp, reporter, policy),
+                JobKind.SUBTITLES: SubtitlesPipeline(settings, sessions, ytdlp, reporter, policy),
                 JobKind.VERIFY: VerifyPipeline(settings, sessions, reporter),
                 JobKind.RESCAN: RescanPipeline(settings, sessions, reporter),
             },
-            lanes=default_lanes(lambda: runtime.current.download_concurrency),
+            lanes=default_lanes(),
+            policy=policy,
         )
         scheduler = ChannelScheduler(settings, runtime, sessions, bus, on_queued=worker.wake)
         updater = YtdlpUpdater(settings, runtime, ytdlp, sessions, bus, on_installed=worker.wake)
         return cls(
             settings=settings,
             runtime=runtime,
+            policy=policy,
             engine=engine,
             sessions=sessions,
             bus=bus,

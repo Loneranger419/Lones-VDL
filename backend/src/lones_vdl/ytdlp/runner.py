@@ -41,8 +41,34 @@ PROGRESS_TEMPLATE = (
     + "|%(info.format_id)s"
 )
 
+# Download policy: slow extraction, one fragment at a time, and few yt-dlp-internal retries
+# (the app does its own, counted retries).
+PACING_ARGS = [
+    "--sleep-requests",
+    "2",
+    "--concurrent-fragments",
+    "1",
+    "--retries",
+    "2",
+    "--fragment-retries",
+    "2",
+    "--extractor-retries",
+    "1",
+]
+
 # yt-dlp: "This channel does not have a streams tab".
 _MISSING_TAB = "does not have a"
+
+SUBTITLE_ARGS = [
+    "--output",
+    "subtitle:subtitles/subs.%(ext)s",
+    "--write-subs",
+    "--write-auto-subs",
+    "--sub-langs",
+    "en,en-orig,en-US,en-GB",
+    "--convert-subs",
+    "vtt",
+]
 
 # Containers tried in order when merging video+audio: browser-playable first, no re-encode.
 MERGE_FORMATS = "webm/mp4/mkv"
@@ -205,7 +231,14 @@ class YtdlpRunner:
         """Run yt-dlp. With stdout_file, stdout goes to that file and only stderr is streamed."""
         tail: deque[str] = deque(maxlen=200)
         with self._cookie_args() as cookie_args:
-            cmd = [*self.command, "--ignore-config", "--no-colors", *cookie_args, *args]
+            cmd = [
+                *self.command,
+                "--ignore-config",
+                "--no-colors",
+                *PACING_ARGS,
+                *cookie_args,
+                *args,
+            ]
             popen_kwargs: dict[str, Any] = {
                 "stdin": subprocess.DEVNULL,
                 "stderr": subprocess.STDOUT if stdout_file is None else subprocess.PIPE,
@@ -351,8 +384,10 @@ class YtdlpRunner:
         log: TextIO | None = None,
         on_line: Callable[[str], None] | None = None,
         cancel: CancelToken | None = None,
+        subtitles: bool = False,
     ) -> None:
-        """Download media, thumbnail, subtitles, and info JSON into workdir."""
+        """Download media, thumbnail, and info JSON into workdir. Subtitles only on request:
+        YouTube throttles that request separately, and it is not worth failing a video over."""
         args = [
             "-v",
             "--newline",
@@ -370,28 +405,35 @@ class YtdlpRunner:
             "--output",
             "thumbnail:thumbnail.%(ext)s",
             "--output",
-            "subtitle:subtitles/subs.%(ext)s",
-            "--output",
             "infojson:info.%(ext)s",
             "--write-info-json",
             "--write-thumbnail",
             "--convert-thumbnails",
             "jpg",
-            "--write-subs",
-            "--write-auto-subs",
-            "--sub-langs",
-            "en,en-orig,en-US,en-GB",
-            "--convert-subs",
-            "vtt",
             "--progress-template",
             f"download:{PROGRESS_TEMPLATE}",
         ]
+        if subtitles:
+            args += SUBTITLE_ARGS
         result = self.run(args, log=log, on_line=on_line, cancel=cancel)
         if result.returncode != 0:
             # Subtitle/thumbnail failures are non-fatal when the media made it.
             if any(workdir.glob("media.*")) and _only_sidecar_errors(result.output):
                 return
             self._check(result)
+
+    def fetch_subtitles(
+        self,
+        url: str,
+        *,
+        workdir: Path,
+        log: TextIO | None = None,
+        on_line: Callable[[str], None] | None = None,
+        cancel: CancelToken | None = None,
+    ) -> None:
+        """Download only the subtitles of an already archived video into workdir/subtitles."""
+        args = ["-v", "--newline", "--skip-download", "--paths", str(workdir), *SUBTITLE_ARGS, url]
+        self._check(self.run(args, log=log, on_line=on_line, cancel=cancel))
 
 
 def _only_sidecar_errors(output: str) -> bool:

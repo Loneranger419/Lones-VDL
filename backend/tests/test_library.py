@@ -76,6 +76,10 @@ def test_media_range_thumbnail_and_subtitles(authed, library):
     assert partial.headers["content-range"] == f"bytes 0-3/{len(full.content)}"
 
     assert authed.get(f"/api/videos/{pk}/thumbnail").headers["content-type"] == "image/jpeg"
+    assert authed.get(f"/api/videos/{pk}").json()["subtitles"] == []  # not fetched by default
+    job = authed.post(f"/api/videos/{pk}/subtitles")
+    assert job.status_code == 202, job.text
+    wait_idle(authed)
     detail = authed.get(f"/api/videos/{pk}").json()
     assert detail["subtitles"] == ["en"]
     sub = authed.get(f"/api/videos/{pk}/subtitles/en.vtt")

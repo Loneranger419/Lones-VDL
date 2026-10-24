@@ -8,11 +8,12 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from lones_vdl.api.deps import AuthDep, DbDep, ServicesDep
 from lones_vdl.db.models import ContentKind, Integrity, Video
 from lones_vdl.schemas import (
+    JobOut,
     ProgressUpdate,
     RelatedOut,
     VideoDetail,
@@ -20,7 +21,8 @@ from lones_vdl.schemas import (
     VideoPage,
     WatchedUpdate,
 )
-from lones_vdl.services import library
+from lones_vdl.services import downloads, library, subtitles
+from lones_vdl.services import jobs as job_service
 from lones_vdl.storage import archive
 
 router = APIRouter(prefix="/videos", tags=["videos"], dependencies=[AuthDep])
@@ -111,6 +113,23 @@ def get_video(video_pk: int, db: DbDep, services: ServicesDep):
             "collection_ids": library.collection_ids(db, video.id),
         }
     )
+
+
+@router.post("/{video_pk}/subtitles", status_code=status.HTTP_202_ACCEPTED, response_model=JobOut)
+def fetch_subtitles(video_pk: int, db: DbDep, services: ServicesDep):
+    """Queue a download of this video's subtitles. Archiving skips them by default."""
+    video = _get(db, video_pk)
+    try:
+        job = subtitles.enqueue(db, services.settings, video)
+    except downloads.EnqueueError as exc:
+        return JSONResponse(
+            status_code=exc.status,
+            content={"detail": exc.message, "kind": exc.kind, **exc.extra},
+        )
+    db.commit()
+    services.bus.publish("job", job_service.job_payload(job))
+    services.worker.wake()
+    return job
 
 
 @router.get("/{video_pk}/related", response_model=RelatedOut)

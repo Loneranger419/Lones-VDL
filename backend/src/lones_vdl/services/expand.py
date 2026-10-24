@@ -25,8 +25,9 @@ from sqlalchemy.orm import sessionmaker
 
 from lones_vdl.config import Settings
 from lones_vdl.db import utcnow
-from lones_vdl.db.models import Channel, Job, JobKind, JobStage
+from lones_vdl.db.models import AttemptKind, Channel, Job, JobKind, JobStage
 from lones_vdl.platforms import UrlKind, get_platform, parse_url
+from lones_vdl.services import accounts as account_service
 from lones_vdl.services import channels as channel_service
 from lones_vdl.services.jobs import (
     PRIORITY_NEW_UPLOAD,
@@ -34,6 +35,7 @@ from lones_vdl.services.jobs import (
     JobReporter,
     open_job_log,
 )
+from lones_vdl.services.policy import Policy
 from lones_vdl.storage import archive
 from lones_vdl.ytdlp import CancelToken, ErrorKind, YtdlpError, YtdlpManager, YtdlpRunner
 from lones_vdl.ytdlp.errors import MESSAGES
@@ -71,11 +73,13 @@ class ExpandPipeline:
         sessions: sessionmaker,
         ytdlp: YtdlpManager,
         reporter: JobReporter,
+        policy: Policy,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
         self.ytdlp = ytdlp
         self.reporter = reporter
+        self.policy = policy
 
     def workdir(self, job_id: int) -> Path:
         return self.settings.data_dir / "tmp" / f"job-{job_id}"
@@ -87,13 +91,28 @@ class ExpandPipeline:
         with self.sessions() as db:
             job = db.get_one(Job, job_id)
         try:
-            with open_job_log(self.settings, job) as log:
-                return self._run(job, cancel, log)
+            with self.sessions() as db:
+                # Listings use the alternate account at most, never the personal one.
+                account = account_service.account_for_job(
+                    self.settings, db, job.auth_tier, (job.options or {}).get("account_id")
+                )
+                cookies_file = (
+                    account_service.cookie_path(self.settings, account) if account else None
+                )
+                label = account.label if account else None
+            with (
+                self.policy.attempt(job.id, account, AttemptKind.LISTING),
+                open_job_log(self.settings, job) as log,
+            ):
+                log.write(f"access: {f'account {label!r}' if label else 'anonymous'}\n")
+                return self._run(job, cancel, log, cookies_file)
         except YtdlpError as exc:
             self._record_check_error(job_id, MESSAGES[exc.kind])
             raise
 
-    def _run(self, job: Job, cancel: CancelToken, log: TextIO) -> dict[str, Any]:
+    def _run(
+        self, job: Job, cancel: CancelToken, log: TextIO, cookies_file: Path | None
+    ) -> dict[str, Any]:
         options = job.options or {}
         mode = options.get("mode", "all")
         parsed = parse_url(job.url)
@@ -103,7 +122,7 @@ class ExpandPipeline:
         workdir = self.workdir(job.id)
 
         self.reporter.update(job.id, stage=JobStage.RESOLVING)
-        with self.ytdlp.using() as runner:
+        with self.ytdlp.using(cookies_file) as runner:
             self.reporter.update(job.id, ytdlp_version=self.ytdlp.version())
             if parsed.kind == UrlKind.PLAYLIST:
                 listing = runner.list_entries(

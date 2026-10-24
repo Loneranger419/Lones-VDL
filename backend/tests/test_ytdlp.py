@@ -26,6 +26,17 @@ ROTATED = (
         ("ERROR: [youtube] x: Sign in to confirm you're not a bot.", True, ErrorKind.AUTH_REQUIRED),
         (ROTATED, True, ErrorKind.COOKIES_INVALID),
         ("ERROR: [youtube] x: Sign in to confirm your age.", True, ErrorKind.AUTH_REQUIRED),
+        (
+            "ERROR: [youtube] x: Join this channel to get access to members-only content "
+            "like this video, and other exclusive perks.",
+            False,
+            ErrorKind.MEMBERS_ONLY,
+        ),
+        (
+            "ERROR: [youtube] x: This video is available to this channel's members on level: X",
+            True,
+            ErrorKind.MEMBERS_ONLY,
+        ),
         ("ERROR: [youtube] x: Video unavailable", False, ErrorKind.UNAVAILABLE),
         (
             "ERROR: [youtube] x: Private video. Sign in if you've been granted access",
@@ -108,7 +119,7 @@ def test_manager_update_waits_for_running_jobs(tmp_path, monkeypatch):
     calls: list[str] = []
     monkeypatch.setattr(manager, "_uv", lambda cmd: calls.append(cmd[1]))
     monkeypatch.setattr(manager, "version", lambda refresh=False: "1.0")
-    monkeypatch.setattr(manager, "runner", lambda: object())
+    monkeypatch.setattr(manager, "runner", lambda cookies_file=None: object())
 
     in_use = threading.Event()
     release = threading.Event()

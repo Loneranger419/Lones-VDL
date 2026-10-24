@@ -8,7 +8,8 @@ from sqlalchemy import delete, func, select
 
 from lones_vdl.api.deps import AuthDep, DbDep, ServicesDep
 from lones_vdl.db.models import ACTIVE_JOB_STATUSES, Job, JobStatus
-from lones_vdl.schemas import EnqueueRequest, JobOut
+from lones_vdl.schemas import EnqueueRequest, JobOut, RetryRequest
+from lones_vdl.services import accounts as account_service
 from lones_vdl.services import downloads
 from lones_vdl.services import jobs as job_service
 
@@ -98,11 +99,32 @@ def cancel(job_id: int, db: DbDep, services: ServicesDep):
     return job
 
 
-@router.post("/{job_id}/retry", response_model=JobOut)
-def retry(job_id: int, db: DbDep, services: ServicesDep):
+@router.post("/{job_id}/approve", response_model=JobOut)
+def approve(job_id: int, db: DbDep, services: ServicesDep):
+    """Let a job that needs the personal account (e.g. members-only) run with it."""
     job = _get(db, job_id)
     try:
-        job_service.retry(db, job)
+        job_service.approve(db, job)
+    except job_service.JobStateError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    db.commit()
+    services.bus.publish("job", job_service.job_payload(job))
+    services.worker.wake()
+    return job
+
+
+@router.post("/{job_id}/retry", response_model=JobOut)
+def retry(job_id: int, db: DbDep, services: ServicesDep, body: RetryRequest | None = None):
+    """Run a failed job again. Without an account it starts over anonymous; with `account_id`
+    (e.g. a private video) it uses that account, and the personal one counts as approval."""
+    job = _get(db, job_id)
+    account = None
+    if body is not None and body.account_id is not None:
+        account = account_service.get(db, body.account_id)
+        if account is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "account not found")
+    try:
+        job_service.retry(db, job, account)
     except job_service.JobStateError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     db.commit()

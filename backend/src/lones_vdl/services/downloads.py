@@ -16,11 +16,19 @@ from sqlalchemy.orm import sessionmaker
 from lones_vdl import __version__
 from lones_vdl.config import Settings
 from lones_vdl.db import utcnow
-from lones_vdl.db.models import ContentKind, Job, JobKind, JobStage, JobStatus, Video
+from lones_vdl.db.models import (
+    AttemptKind,
+    ContentKind,
+    Job,
+    JobKind,
+    JobStage,
+    JobStatus,
+    Video,
+)
 from lones_vdl.platforms import UrlKind, parse_url
 from lones_vdl.schemas import JobProgress
+from lones_vdl.services import accounts as account_service
 from lones_vdl.services import channels as channel_service
-from lones_vdl.services import cookies as cookie_service
 from lones_vdl.services.jobs import (
     PRIORITY_BACKFILL,
     PRIORITY_EXPAND,
@@ -31,6 +39,7 @@ from lones_vdl.services.jobs import (
     active_job_for,
     open_job_log,
 )
+from lones_vdl.services.policy import AttemptHandle, Policy
 from lones_vdl.storage import archive
 from lones_vdl.ytdlp import QUALITIES, CancelToken, ErrorKind, YtdlpError, YtdlpManager
 from lones_vdl.ytdlp.runner import parse_progress
@@ -275,11 +284,13 @@ class DownloadPipeline:
         sessions: sessionmaker,
         ytdlp: YtdlpManager,
         reporter: JobReporter,
+        policy: Policy,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
         self.ytdlp = ytdlp
         self.reporter = reporter
+        self.policy = policy
 
     def cleanup(self, job_id: int) -> None:
         archive.remove_partial(self.settings.partial_dir / str(job_id))
@@ -288,14 +299,29 @@ class DownloadPipeline:
         """Run one attempt. Returns fields to set on the completed job; raises on failure."""
         with self.sessions() as db:
             job = db.get_one(Job, job_id)
-        with open_job_log(self.settings, job) as log:
-            video_pk = self._run(job, cancel, log)
+            account = account_service.account_for_job(
+                self.settings, db, job.auth_tier, (job.options or {}).get("account_id")
+            )
+            cookies_file = account_service.cookie_path(self.settings, account) if account else None
+            label = account.label if account else None
+        with (
+            self.policy.attempt(job.id, account, AttemptKind.VIDEO) as attempt,
+            open_job_log(self.settings, job) as log,
+        ):
+            log.write(f"access: {f'account {label!r}' if label else 'anonymous'}\n")
+            video_pk = self._run(job, cancel, log, cookies_file, attempt)
         return {"video_pk": video_pk}
 
-    def _run(self, job: Job, cancel: CancelToken, log: TextIO) -> int:
+    def _run(
+        self,
+        job: Job,
+        cancel: CancelToken,
+        log: TextIO,
+        cookies_file: Path | None,
+        attempt: AttemptHandle,
+    ) -> int:
         workdir = archive.partial_dir(self.settings.partial_dir, job.id)
-        with self.ytdlp.using() as runner:
-            used_cookies = runner.has_cookies
+        with self.ytdlp.using(cookies_file) as runner:
             version = self.ytdlp.version()
             self.reporter.update(job.id, stage=JobStage.RESOLVING, ytdlp_version=version)
             log.write(f"yt-dlp {version} cookies={'yes' if runner.has_cookies else 'no'}\n")
@@ -307,6 +333,7 @@ class DownloadPipeline:
             dest = archive.video_dir(self.settings.archive_root, job.platform, video_id)
             self._check_conflict(job, video_id, dest)
 
+            attempt.download_started()
             tracker = ProgressTracker(job.id, expected_size(info), self.reporter.progress)
             self.reporter.progress(
                 JobProgress(id=job.id, stage=JobStage.DOWNLOADING, progress=0.0), force=True
@@ -352,8 +379,6 @@ class DownloadPipeline:
                 thumbnail_file=outputs.thumbnail.name if outputs.thumbnail else None,
             )
             self._queue_channel_metadata(db, video)
-            if used_cookies:
-                cookie_service.record_health(db, cookie_service.OK)
             return video.id
 
     def _queue_channel_metadata(self, db: DbSession, video: Video) -> None:
