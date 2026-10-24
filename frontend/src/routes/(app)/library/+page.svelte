@@ -17,8 +17,8 @@
 	import XIcon from '@lucide/svelte/icons/x';
 
 	const SORTS = [
+		{ value: 'uploaded_desc', label: 'Recently uploaded' },
 		{ value: 'archived_desc', label: 'Recently archived' },
-		{ value: 'uploaded_desc', label: 'Newest uploads' },
 		{ value: 'uploaded_asc', label: 'Oldest uploads' },
 		{ value: 'watched_desc', label: 'Recently watched' },
 		{ value: 'title', label: 'Title A–Z' },
@@ -47,7 +47,7 @@
 		watch: (params.get('watch') || undefined) as VideoQuery['watch'],
 		channel: params.get('channel') ? Number(params.get('channel')) : undefined,
 		integrity: (params.get('integrity') || undefined) as VideoQuery['integrity'],
-		sort: (params.get('sort') || 'archived_desc') as VideoQuery['sort']
+		sort: (params.get('sort') || 'uploaded_desc') as VideoQuery['sort']
 	});
 	const filtered = $derived(
 		Boolean(filters.q || filters.kind || filters.watch || filters.channel || filters.integrity)
@@ -122,7 +122,7 @@
 			label="Sort"
 			options={SORTS}
 			value={filters.sort}
-			onchange={(v) => setParam('sort', v, 'archived_desc')}
+			onchange={(v) => setParam('sort', v, 'uploaded_desc')}
 		/>
 	</div>
 	{#if filters.integrity}

@@ -7,13 +7,28 @@
 		videos,
 		loading = false,
 		showChannel = true,
-		skeletons = 12
-	}: { videos: Video[]; loading?: boolean; showChannel?: boolean; skeletons?: number } = $props();
+		skeletons = 12,
+		rows
+	}: {
+		videos: Video[];
+		loading?: boolean;
+		showChannel?: boolean;
+		skeletons?: number;
+		/** Show only this many rows, however many columns fit; pass enough videos to fill them. */
+		rows?: number;
+	} = $props();
 </script>
 
-<div class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-x-4 gap-y-7">
+<!-- With `rows`, rows past the limit get zero height and are clipped. -->
+<div
+	class={[
+		'grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-x-4',
+		rows ? 'auto-rows-[0] overflow-hidden' : 'gap-y-7'
+	]}
+	style:grid-template-rows={rows ? `repeat(${rows}, auto)` : undefined}
+>
 	{#each videos as video (video.id)}
-		<VideoCard {video} {showChannel} />
+		<div class={rows ? 'pb-7' : undefined}><VideoCard {video} {showChannel} /></div>
 	{/each}
 	{#if loading}
 		{#each { length: skeletons }, i (i)}

@@ -15,7 +15,9 @@
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 
 	const continueWatching = createQuery(() => queries.continueWatching());
-	const recent = createQuery(() => queries.videos({ sort: 'archived_desc', limit: 12 }));
+	const recent = createQuery(() => queries.videos({ sort: 'archived_desc', limit: 16 }));
+	// Shown as 4 rows; the grid decides how many columns fit, so ask for enough to fill them.
+	const uploaded = createQuery(() => queries.videos({ sort: 'uploaded_desc', limit: 48 }));
 	const channels = createQuery(() => queries.channels());
 	const active = createQuery(() => queries.jobs({ status: ['running'], limit: 5 }));
 	const counts = createQuery(() => queries.jobCounts());
@@ -37,6 +39,18 @@
 				{label}<ChevronRightIcon class="size-4" />
 			</a>
 		{/if}
+	</div>
+{/snippet}
+
+{#snippet rowSkeleton()}
+	<div class="flex gap-4 overflow-hidden">
+		{#each { length: 4 }, i (i)}
+			<div class="w-64 shrink-0 space-y-2.5 sm:w-72">
+				<Skeleton class="aspect-video w-full rounded-xl" />
+				<Skeleton class="h-4 w-11/12" />
+				<Skeleton class="h-3 w-1/2" />
+			</div>
+		{/each}
 	</div>
 {/snippet}
 
@@ -102,11 +116,28 @@
 		{/if}
 
 		<section>
-			{@render heading('Recently archived', '/library')}
+			{@render heading('Recently archived', '/library?sort=archived_desc')}
 			{#if recent.isPending}
+				{@render rowSkeleton()}
+			{:else}
+				<div
+					class="-mx-4 flex snap-x snap-mandatory [scrollbar-width:thin] gap-4 overflow-x-auto px-4 pb-2 md:mx-0 md:px-0"
+				>
+					{#each recent.data?.items ?? [] as video (video.id)}
+						<div class="w-64 shrink-0 snap-start sm:w-72">
+							<VideoCard {video} />
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</section>
+
+		<section>
+			{@render heading('Recently uploaded', '/library')}
+			{#if uploaded.isPending}
 				<VideoGrid videos={[]} loading skeletons={8} />
 			{:else}
-				<VideoGrid videos={recent.data?.items ?? []} />
+				<VideoGrid videos={uploaded.data?.items ?? []} rows={4} />
 			{/if}
 		</section>
 
