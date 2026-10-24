@@ -48,6 +48,16 @@ class JobOut(OrmModel):
     finished_at: datetime | None
 
 
+class QueueSummary(BaseModel):
+    """Waiting jobs by type (running ones are not counted)."""
+
+    videos: int
+    shorts: int
+    streams: int
+    listings: int  # playlist / channel checks
+    subtitles: int
+
+
 class JobProgress(BaseModel):
     """Lightweight high-frequency event; not persisted on every tick."""
 

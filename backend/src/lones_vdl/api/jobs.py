@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, select
 
 from lones_vdl.api.deps import AuthDep, DbDep, ServicesDep
-from lones_vdl.db.models import ACTIVE_JOB_STATUSES, Job, JobStatus
-from lones_vdl.schemas import EnqueueRequest, JobOut, RetryRequest
+from lones_vdl.db.models import ACTIVE_JOB_STATUSES, ContentKind, Job, JobKind, JobStatus
+from lones_vdl.schemas import EnqueueRequest, JobOut, QueueSummary, RetryRequest
 from lones_vdl.services import accounts as account_service
 from lones_vdl.services import downloads
 from lones_vdl.services import jobs as job_service
@@ -56,11 +56,22 @@ def list_jobs(
     kind: Annotated[list[str] | None, Query()] = None,
     parent: Annotated[int | None, Query(description="jobs queued by this expand job")] = None,
     channel: Annotated[int | None, Query()] = None,
+    order: Annotated[
+        Literal["newest", "queue"],
+        Query(description="queue: running first, then in the order jobs will start"),
+    ] = "newest",
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ):
-    """Newest first. Active jobs: ?status=queued&status=running."""
-    query = select(Job).order_by(Job.id.desc()).offset(offset).limit(limit)
+    """Newest first. Active jobs: ?status=queued&status=running&order=queue."""
+    if order == "queue":
+        running_first = case((Job.status == JobStatus.RUNNING, 0), else_=1)
+        query = select(Job).order_by(
+            running_first, Job.priority.desc(), Job.next_attempt_at, Job.id
+        )
+    else:
+        query = select(Job).order_by(Job.id.desc())
+    query = query.offset(offset).limit(limit)
     if status_filter:
         query = query.where(Job.status.in_(status_filter))
     if kind:
@@ -70,6 +81,30 @@ def list_jobs(
     if channel is not None:
         query = query.where(Job.channel_pk == channel)
     return db.scalars(query).all()
+
+
+@router.get("/queue", response_model=QueueSummary)
+def queue_summary(db: DbDep):
+    """Waiting jobs by type, for the Downloads page."""
+    rows = db.execute(
+        select(Job.kind, Job.content_kind, func.count())
+        .where(Job.status == JobStatus.QUEUED)
+        .group_by(Job.kind, Job.content_kind)
+    ).all()
+    summary = {"videos": 0, "shorts": 0, "streams": 0, "listings": 0, "subtitles": 0}
+    for kind, content_kind, n in rows:
+        if kind == JobKind.DOWNLOAD:
+            key = {ContentKind.SHORT: "shorts", ContentKind.STREAM: "streams"}.get(
+                content_kind, "videos"
+            )
+        elif kind == JobKind.EXPAND:
+            key = "listings"
+        elif kind == JobKind.SUBTITLES:
+            key = "subtitles"
+        else:
+            continue
+        summary[key] += n
+    return summary
 
 
 @router.get("/counts")

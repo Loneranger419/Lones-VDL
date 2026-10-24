@@ -16,7 +16,7 @@ from conftest import (
 )
 
 from lones_vdl.db import utcnow
-from lones_vdl.db.models import AccessAttempt
+from lones_vdl.db.models import AccessAttempt, Job, JobStatus
 from lones_vdl.services import policy as policy_service
 
 SHORT_A, SHORT_B = "shortshort1", "shortshort2"  # ids containing "short" are portrait and brief
@@ -171,3 +171,36 @@ def test_settings_validate_the_shorts_caps(authed):
         "videos",
         "shorts",
     ]
+
+
+# --- the queue as the Downloads page shows it --------------------------------------------------
+
+
+def test_queue_summary_counts_waiting_jobs_by_type(authed, fake_state):
+    hold_everything(authed, seconds=4)
+    enqueue(authed, VIDEO_A)
+    enqueue(authed, VIDEO_B)
+    short(authed, SHORT_A)
+    authed.post("/api/jobs", json={"url": CHANNEL_URL})
+    summary = authed.get("/api/jobs/queue").json()
+    assert summary == {"videos": 2, "shorts": 1, "streams": 0, "listings": 1, "subtitles": 0}
+    wait_idle(authed, timeout=40)
+    assert authed.get("/api/jobs/queue").json()["videos"] == 0
+
+
+def test_queue_order_lists_running_jobs_first(authed):
+    hold_everything(authed, seconds=4)
+    first = enqueue(authed, VIDEO_A)
+    last = enqueue(authed, VIDEO_B)
+    params = {"status": ["queued", "running"], "order": "queue"}
+    assert [j["id"] for j in authed.get("/api/jobs", params=params).json()] == [
+        first["id"],
+        last["id"],
+    ]
+    with services(authed).sessions.begin() as db:  # as if the newest job had just started
+        db.get(Job, last["id"]).status = JobStatus.RUNNING
+    ids = [j["id"] for j in authed.get("/api/jobs", params=params).json()]
+    assert ids == [last["id"], first["id"]]
+    with services(authed).sessions.begin() as db:
+        db.get(Job, last["id"]).status = JobStatus.QUEUED
+    wait_idle(authed, timeout=40)

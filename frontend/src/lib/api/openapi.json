@@ -211,7 +211,7 @@
           "jobs"
         ],
         "summary": "List Jobs",
-        "description": "Newest first. Active jobs: ?status=queued&status=running.",
+        "description": "Newest first. Active jobs: ?status=queued&status=running&order=queue.",
         "operationId": "list_jobs_api_jobs_get",
         "parameters": [
           {
@@ -287,6 +287,22 @@
             }
           },
           {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "newest",
+                "queue"
+              ],
+              "type": "string",
+              "description": "queue: running first, then in the order jobs will start",
+              "default": "newest",
+              "title": "Order"
+            },
+            "description": "queue: running first, then in the order jobs will start"
+          },
+          {
             "name": "offset",
             "in": "query",
             "required": false,
@@ -331,6 +347,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/queue": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Queue Summary",
+        "description": "Waiting jobs by type, for the Downloads page.",
+        "operationId": "queue_summary_api_jobs_queue_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueSummary"
                 }
               }
             }
@@ -4078,6 +4116,40 @@
           "position_seconds"
         ],
         "title": "ProgressUpdate"
+      },
+      "QueueSummary": {
+        "properties": {
+          "videos": {
+            "type": "integer",
+            "title": "Videos"
+          },
+          "shorts": {
+            "type": "integer",
+            "title": "Shorts"
+          },
+          "streams": {
+            "type": "integer",
+            "title": "Streams"
+          },
+          "listings": {
+            "type": "integer",
+            "title": "Listings"
+          },
+          "subtitles": {
+            "type": "integer",
+            "title": "Subtitles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "videos",
+          "shorts",
+          "streams",
+          "listings",
+          "subtitles"
+        ],
+        "title": "QueueSummary",
+        "description": "Waiting jobs by type (running ones are not counted)."
       },
       "RelatedOut": {
         "properties": {

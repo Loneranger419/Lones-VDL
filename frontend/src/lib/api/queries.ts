@@ -13,6 +13,7 @@ export const keys = {
 	jobs: ['jobs'] as const,
 	jobList: (query: JobQuery) => ['jobs', 'list', query] as const,
 	jobCounts: ['jobs', 'counts'] as const,
+	jobQueue: ['jobs', 'queue'] as const,
 	videos: ['videos'] as const,
 	videoList: (query: VideoQuery) => ['videos', 'list', query] as const,
 	videoPages: (query: VideoQuery) => ['videos', 'pages', query] as const,
@@ -43,6 +44,11 @@ export const queries = {
 		queryOptions({
 			queryKey: keys.jobList(query),
 			queryFn: () => call(api.GET('/api/jobs', { params: { query } }))
+		}),
+	jobQueue: () =>
+		queryOptions({
+			queryKey: keys.jobQueue,
+			queryFn: () => call(api.GET('/api/jobs/queue'))
 		}),
 	jobCounts: () =>
 		queryOptions({

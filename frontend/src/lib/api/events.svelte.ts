@@ -42,7 +42,7 @@ export function connectEvents(client: QueryClient): () => void {
 		});
 		// New jobs, or jobs that changed status and so move between filtered lists.
 		if (!found || SETTLED.has(job.status)) invalidateSoon(keys.jobs);
-		else invalidateSoon(keys.jobCounts);
+		else invalidateSoon(keys.jobCounts, keys.jobQueue);
 	}
 
 	const source = new EventSource('/api/events');

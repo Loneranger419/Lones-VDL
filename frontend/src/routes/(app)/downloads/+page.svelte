@@ -20,7 +20,7 @@
 
 	type Tab = 'active' | 'approval' | 'failed' | 'done';
 	const TAB_QUERIES: Record<Tab, JobQuery> = {
-		active: { status: ['queued', 'running'], limit: 200 },
+		active: { status: ['queued', 'running'], order: 'queue', limit: 200 },
 		approval: { status: ['awaiting_approval'], limit: 200 },
 		failed: { status: ['failed'], limit: 200 },
 		done: { status: ['completed', 'cancelled'], limit: 100 }
@@ -32,8 +32,10 @@
 
 	const counts = createQuery(() => queries.jobCounts());
 	const jobs = createQuery(() => queries.jobs(TAB_QUERIES[tab]));
+	const queue = createQuery(() => queries.jobQueue());
 
-	// Active: what runs now first, then the queue in the order it will run.
+	// Active: what runs now first, then the queue in the order it will run. The server sorts the
+	// whole queue; this keeps the order right when a live update changes one job.
 	const sorted = $derived.by(() => {
 		const list = [...(jobs.data ?? [])];
 		if (tab !== 'active') return list;
@@ -41,11 +43,24 @@
 			(a, b) =>
 				Number(b.status === 'running') - Number(a.status === 'running') ||
 				b.priority - a.priority ||
+				a.next_attempt_at.localeCompare(b.next_attempt_at) ||
 				a.id - b.id
 		);
 	});
 
 	const c = $derived(counts.data ?? {});
+	const waiting = $derived.by(() => {
+		const q = queue.data;
+		if (!q) return [];
+		const parts: [number, string, string][] = [
+			[q.videos, 'video', 'videos'],
+			[q.shorts, 'short', 'shorts'],
+			[q.streams, 'stream', 'streams'],
+			[q.listings, 'channel or playlist check', 'channel or playlist checks'],
+			[q.subtitles, 'subtitle request', 'subtitle requests']
+		];
+		return parts.filter(([n]) => n > 0).map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
+	});
 	const tabCount = $derived({
 		active: (c.queued ?? 0) + (c.running ?? 0),
 		approval: c.awaiting_approval ?? 0,
@@ -135,6 +150,10 @@
 				{/if}
 			</div>
 		</Tabs.Root>
+
+		{#if tab === 'active' && waiting.length}
+			<p class="mb-3 text-sm text-muted-foreground">Waiting: {waiting.join(' · ')}.</p>
+		{/if}
 
 		{#if tab === 'approval'}
 			<p class="mb-3 text-sm text-muted-foreground">

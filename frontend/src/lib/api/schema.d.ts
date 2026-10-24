@@ -124,12 +124,32 @@ export interface paths {
         };
         /**
          * List Jobs
-         * @description Newest first. Active jobs: ?status=queued&status=running.
+         * @description Newest first. Active jobs: ?status=queued&status=running&order=queue.
          */
         get: operations["list_jobs_api_jobs_get"];
         put?: never;
         /** Enqueue */
         post: operations["enqueue_api_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Queue Summary
+         * @description Waiting jobs by type, for the Downloads page.
+         */
+        get: operations["queue_summary_api_jobs_queue_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1379,6 +1399,22 @@ export interface components {
             /** Position Seconds */
             position_seconds: number;
         };
+        /**
+         * QueueSummary
+         * @description Waiting jobs by type (running ones are not counted).
+         */
+        QueueSummary: {
+            /** Videos */
+            videos: number;
+            /** Shorts */
+            shorts: number;
+            /** Streams */
+            streams: number;
+            /** Listings */
+            listings: number;
+            /** Subtitles */
+            subtitles: number;
+        };
         /** RelatedOut */
         RelatedOut: {
             up_next: components["schemas"]["VideoOut"] | null;
@@ -1834,6 +1870,8 @@ export interface operations {
                 /** @description jobs queued by this expand job */
                 parent?: number | null;
                 channel?: number | null;
+                /** @description queue: running first, then in the order jobs will start */
+                order?: "newest" | "queue";
                 offset?: number;
                 limit?: number;
             };
@@ -1892,6 +1930,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    queue_summary_api_jobs_queue_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueSummary"];
                 };
             };
         };

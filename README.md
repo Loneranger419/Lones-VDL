@@ -157,7 +157,7 @@ Main areas:
 
 | Area | Endpoints |
 |------|-----------|
-| Downloads | `POST /api/jobs` with a video, playlist, or channel URL; `POST /api/videos/{id}/subtitles` fetches captions later (`watch`, `backfill`, `tabs` for channels); list/cancel/retry/log |
+| Downloads | `POST /api/jobs` with a video, playlist, or channel URL; `POST /api/videos/{id}/subtitles` fetches captions later (`watch`, `backfill`, `tabs` for channels); list (`order=queue` puts running first, then start order)/cancel/retry/log; `GET /api/jobs/queue` counts waiting jobs by type |
 | Library | `GET /api/videos` (search, filters, sort, paging), `/continue`, `/{id}/related`, progress, watched, delete |
 | Media | `/api/videos/{id}/media` (Range), `/thumbnail`, `/subtitles/{lang}.vtt`, `/api/channels/{id}/avatar` |
 | Channels | list, details, `PATCH` watch settings, `POST /{id}/check` |
