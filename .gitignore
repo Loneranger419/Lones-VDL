@@ -66,3 +66,6 @@ deploy/.env
 
 # Local planning and runbook notes (not part of the repo)
 docs/
+
+# Editor workspace files
+*.code-workspace
