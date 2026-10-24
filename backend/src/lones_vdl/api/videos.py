@@ -152,16 +152,8 @@ def related(
     video_pk: int,
     db: DbDep,
     limit: Annotated[int, Query(ge=1, le=50)] = 12,
-    preset: Annotated[str | None, Query()] = None,
 ):
-    chosen = presets.resolve(db, preset)
-    up_next, more = library.related(
-        db,
-        _get(db, video_pk),
-        limit,
-        include_tags=chosen.include if chosen else None,
-        exclude_tags=chosen.exclude if chosen else None,
-    )
+    up_next, more = library.related(db, _get(db, video_pk), limit)
     return RelatedOut(
         up_next=VideoOut.model_validate(up_next) if up_next else None,
         more_from_channel=[VideoOut.model_validate(v) for v in more],

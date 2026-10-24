@@ -288,8 +288,8 @@
 		<Card.Header>
 			<Card.Title>Library filters</Card.Title>
 			<Card.Description>
-				Saved tag filters. The default one applies on Home, Library, channel pages, and related
-				videos; you can switch it off from the page. Search and collections are never filtered.
+				Saved tag filters. The default one applies on Home, Library, and channel pages; you can
+				switch it off from the page. Search, collections, and Up next are never filtered.
 			</Card.Description>
 		</Card.Header>
 		<Card.Content>

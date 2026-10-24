@@ -172,7 +172,7 @@ account restrictions. Implemented in `services/policy.py`, `services/accounts.py
   `tags.backfill` fills older ones at startup. Filter presets (`services/presets.py`) live in
   `app_settings` key `library.presets` and travel with `state export`. `/api/videos?preset=` takes
   an id, `default`, or `none` and defaults to none: only browse views (Home, Library, channel,
-  creator, related) send `default`. Search, collections, and Continue watching never hide
+  creator) send `default`. Search, collections, Continue watching, and Up next/related never hide
   anything. Tags match exactly, ignoring case; `tag` needs all, `exclude_tag` none.
 - `services/state_transfer.py` backs `lones-vdl state export|import` (database state for moving a
   library to another install; excludes accounts, jobs, policy counters, sessions). If you add a

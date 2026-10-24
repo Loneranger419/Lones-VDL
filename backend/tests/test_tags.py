@@ -82,18 +82,6 @@ def test_preset_crud_and_default_cleanup(authed):
     assert authed.delete(f"/api/presets/{a['id']}").status_code == 404
 
 
-def test_related_skips_videos_a_preset_hides(authed):
-    archive_all(authed)
-    plain = next(v for v in authed.get("/api/videos").json()["items"] if v["video_id"] == PLAIN)
-    preset = authed.post("/api/presets", json={"name": "No ASMR", "exclude": ["asmr"]}).json()
-    everything = authed.get(f"/api/videos/{plain['id']}/related").json()
-    filtered = authed.get(
-        f"/api/videos/{plain['id']}/related", params={"preset": preset["id"]}
-    ).json()
-    shown = lambda r: len(r["more_from_channel"]) + (1 if r["up_next"] else 0)  # noqa: E731
-    assert shown(everything) == 2 and shown(filtered) == 0
-
-
 def test_backfill_reads_tags_of_videos_archived_earlier(authed):
     archive_all(authed)
     svc = services(authed)

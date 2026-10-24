@@ -1148,22 +1148,6 @@
               "default": 12,
               "title": "Limit"
             }
-          },
-          {
-            "name": "preset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Preset"
-            }
           }
         ],
         "responses": {

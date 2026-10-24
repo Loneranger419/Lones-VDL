@@ -150,13 +150,7 @@ def continue_watching(db: DbSession, limit: int) -> list[Video]:
     return list(db.scalars(with_relations(query)).all())
 
 
-def related(
-    db: DbSession,
-    video: Video,
-    limit: int,
-    include_tags: list[str] | None = None,
-    exclude_tags: list[str] | None = None,
-) -> tuple[Video | None, list[Video]]:
+def related(db: DbSession, video: Video, limit: int) -> tuple[Video | None, list[Video]]:
     """Up next = the following upload from the same channel; plus more from the channel."""
     if video.channel_pk is None:
         return None, []
@@ -175,8 +169,6 @@ def related(
                 .limit(1)
             )
         ).first()
-    for condition in tag_service.conditions(include_tags or [], exclude_tags or []):
-        same_channel = same_channel.where(condition)
     more = db.scalars(
         with_relations(
             same_channel.order_by(Video.upload_date.desc().nulls_last(), Video.id.desc()).limit(

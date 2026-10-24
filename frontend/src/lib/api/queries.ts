@@ -85,11 +85,7 @@ export const queries = {
 		queryOptions({
 			queryKey: keys.related(id),
 			queryFn: () =>
-				call(
-					api.GET('/api/videos/{video_pk}/related', {
-						params: { path: { video_pk: id }, query: { preset: 'default' } }
-					})
-				)
+				call(api.GET('/api/videos/{video_pk}/related', { params: { path: { video_pk: id } } }))
 		}),
 	continueWatching: () =>
 		queryOptions({

@@ -2489,7 +2489,6 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
-                preset?: string | null;
             };
             header?: never;
             path: {

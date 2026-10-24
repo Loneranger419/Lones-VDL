@@ -1,7 +1,7 @@
 <!--
 	Settings: saved tag filters for browsing. A preset lists tags a video must have and tags that
-	hide it. The default preset applies on Home, Library, channel and creator pages, and to
-	related videos; search, collections, and Continue watching are never filtered.
+	hide it. The default preset applies on Home, Library, channel and creator pages;
+	search, collections, Continue watching, and Up next are never filtered.
 -->
 <script lang="ts">
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
