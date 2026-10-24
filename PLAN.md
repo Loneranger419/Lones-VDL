@@ -90,8 +90,25 @@ pause, card, and Settings section; nothing is shared with YouTube.
 
 **New-VOD publish delay (decided 2026-10-23).** A VOD detected on a channel is not queued at
 once. It becomes ready when the channel is offline, the VOD has been known for N minutes
-(default 30, editable), and its duration was unchanged between two checks. Open: whether a live
-stream's VOD id is visible while live.
+(default 30, editable), and its duration was unchanged between two checks.
+
+**Verified with yt-dlp 2026.10.21 in the dev container, anonymous, 2026-10-23 (5 requests).**
+yt-dlp handles Twitch (extractors `twitch:vod`, `twitch:clips`, `twitch:videos`); no Streamlink or
+Helix needed for now.
+
+- Channel VODs: `https://www.twitch.tv/<login>/videos?filter=archives&sort=time` lists ids
+  (`v123...`), titles, durations. Clips: `.../<login>/clips?filter=clips&range=7d`. The bare
+  `twitch.tv/videos/all` URL does not work.
+- A VOD of a **live** stream already exists and resolves, with `live_status=is_live`,
+  `is_live=True`, and a growing `duration`. So "ready" = `live_status` no longer `is_live`, plus
+  the age and stable-duration checks. Live VODs must be skipped, like YouTube live/upcoming.
+- VOD fields: `uploader`/`uploader_id` = channel login (no `channel_id`), `timestamp`,
+  `chapters` (game changes; feeds the chapters backlog item), formats Audio_Only to 1080p60, no
+  subtitles, no thumbnail in the info.
+- Clips: `uploader` is the **clipper**, not the channel (the channel is in the URL); numeric id;
+  `channel_id` present; may be **portrait** (`portrait-1080` formats), so "short" detection by
+  orientation does not apply to clips. They are short-form by kind.
+- Not yet tested: a real download, sub-only VOD error text, 429 text, clip lists for big channels.
 
 **Authentication (decided 2026-10-23).** Optional cookies for one Twitch account, used only for
 content the user marks as needing it; never an automatic fallback. Anonymous covers public
