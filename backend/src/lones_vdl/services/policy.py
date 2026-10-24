@@ -34,6 +34,7 @@ from lones_vdl.db import utcnow
 from lones_vdl.db.models import (
     AccessAttempt,
     Account,
+    AccountRole,
     AttemptKind,
     AuthTier,
     ContentKind,
@@ -147,8 +148,8 @@ class Snapshot:
             short = job.content_kind == ContentKind.SHORT
             if self.next_video_at:
                 ready = max(ready, self.next_video_at)
-            # A job the user approved by hand is exempt from the daily total (it still counts
-            # towards it, and still waits for the account cap, the delay, and any pause).
+            # A job the user approved by hand is exempt from the daily total (and is not counted in
+            # it); it still waits for the account cap, the delay, and any pause.
             if job.approved_at is None:
                 ready = max(ready, self.short_total_ready if short else self.total_ready)
             if uses_account:
@@ -188,7 +189,9 @@ class Policy:
                     AccessAttempt.download_started_at,
                     AccessAttempt.account_pk,
                     AccessAttempt.content_kind,
+                    Account.role,
                 )
+                .outerjoin(Account, Account.id == AccessAttempt.account_pk)
                 .where(
                     AccessAttempt.kind == AttemptKind.VIDEO,
                     AccessAttempt.download_started_at >= now - WINDOW,
@@ -196,13 +199,17 @@ class Policy:
                 .order_by(AccessAttempt.download_started_at)
             )
         )
-        videos = [(at, acc) for at, acc, kind in starts if not _is_short(kind)]
-        shorts = [(at, acc) for at, acc, kind in starts if _is_short(kind)]
+        videos = [(at, acc, role) for at, acc, kind, role in starts if not _is_short(kind)]
+        shorts = [(at, acc, role) for at, acc, kind, role in starts if _is_short(kind)]
 
-        def ready(rows: list[tuple[datetime, int | None]], cap: int, auth_cap: int):
-            total = _cap_ready([at for at, _ in rows], cap, now)
+        def ready(rows: list[tuple[datetime, int | None, str | None]], cap: int, auth_cap: int):
+            # A download on the personal account (always approved by hand) counts only towards
+            # the account cap, not the daily total.
+            total = _cap_ready(
+                [at for at, _, role in rows if role != AccountRole.PERSONAL], cap, now
+            )
             auth = (
-                _cap_ready([at for at, acc in rows if acc is not None], auth_cap, now)
+                _cap_ready([at for at, acc, _ in rows if acc is not None], auth_cap, now)
                 if auth_cap
                 else now + WINDOW
             )
@@ -265,7 +272,9 @@ class Policy:
         cfg = self.runtime.current
         rows = list(
             db.execute(
-                select(AccessAttempt.account_pk, AccessAttempt.content_kind).where(
+                select(AccessAttempt.account_pk, AccessAttempt.content_kind, Account.role)
+                .outerjoin(Account, Account.id == AccessAttempt.account_pk)
+                .where(
                     AccessAttempt.kind == AttemptKind.VIDEO,
                     AccessAttempt.download_started_at >= now - WINDOW,
                 )
@@ -273,13 +282,14 @@ class Policy:
         )
 
         def group(key: str, label: str, short: bool, cap: int, auth_cap: int) -> dict[str, object]:
-            mine = [acc for acc, kind in rows if _is_short(kind) == short]
+            mine = [(acc, role) for acc, kind, role in rows if _is_short(kind) == short]
             return {
                 "key": key,
                 "label": label,
-                "used": len(mine),
+                # Personal-account downloads count only as "using an account".
+                "used": sum(1 for _, role in mine if role != AccountRole.PERSONAL),
                 "cap": cap,
-                "auth_used": sum(1 for acc in mine if acc is not None),
+                "auth_used": sum(1 for acc, _ in mine if acc is not None),
                 "auth_cap": auth_cap,
             }
 

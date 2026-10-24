@@ -114,6 +114,9 @@ def test_members_only_waits_for_approval_then_uses_the_personal_account(authed, 
     assert done["approved_at"] is not None
     assert calls(fake_state)[-1] == f"{MEMBERS} auth"
     assert attempts(authed)[-1].account_pk == personal_id
+    # A personal-account download counts only as "using an account", not towards the daily total.
+    used = youtube_limits(authed.get("/api/policy").json())
+    assert (used["downloads_24h"], used["authenticated_24h"]) == (1, 1)
 
 
 def test_members_only_without_a_personal_account_just_fails(authed):

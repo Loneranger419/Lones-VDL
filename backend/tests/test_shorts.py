@@ -163,7 +163,7 @@ def test_a_job_approved_by_hand_ignores_the_daily_video_cap(authed):
         db.get(Job, held["id"]).approved_at = utcnow()
     services(authed).worker.wake()
     assert wait_for_job(authed, held["id"])["status"] == "completed"
-    assert limits(authed)["downloads_24h"] == 2  # it still counts
+    assert limits(authed)["downloads_24h"] == 2  # an anonymous download still counts
 
 
 def test_a_short_only_recognised_after_resolving_steps_aside(authed):
