@@ -57,6 +57,12 @@ def fail(*lines: str) -> None:
     sys.exit(1)
 
 
+def chapters_ready() -> bool:
+    """Tests create this file to make chapters appear on videos that had none."""
+    state = os.environ.get("FAKE_YTDLP_STATE")
+    return bool(state) and (Path(state) / "chapters_ready").exists()
+
+
 def info_for(video_id: str) -> dict:
     # Ids containing "short" are portrait and brief, like a YouTube short.
     short = "short" in video_id
@@ -68,7 +74,8 @@ def info_for(video_id: str) -> dict:
         "channel_id": "UC" + "x" * 22,
         "channel_url": "https://www.youtube.com/channel/UC" + "x" * 22,
         "uploader_id": "@fakechannel",
-        "upload_date": "20240102",
+        # Ids containing "new" were published today; the others long ago.
+        "upload_date": time.strftime("%Y%m%d", time.gmtime()) if "new" in video_id else "20240102",
         "duration": 30 if short else 63,
         "width": 720 if short else 1280,
         "height": 1280 if short else 720,
@@ -76,6 +83,20 @@ def info_for(video_id: str) -> dict:
         "like_count": 56,
         # Ids containing "asmr" get that tag too; the duplicate differs only in case.
         "tags": ["Sleep", "ASMR", "asmr"] if "asmr" in video_id else ["Sleep", "Fake"],
+        **(
+            {
+                "chapters": [
+                    {"start_time": 0, "end_time": 20, "title": "Intro & <setup>"},
+                    {"start_time": 20, "end_time": 63, "title": "Main part"},
+                ],
+                "heatmap": [
+                    {"start_time": 0.0, "end_time": 31.5, "value": 0.4},
+                    {"start_time": 31.5, "end_time": 63.0, "value": 1.0},
+                ],
+            }
+            if "chap" in video_id or ("late" in video_id and chapters_ready())
+            else {}
+        ),
         "format_id": "247+251",
         "ext": "webm",
         "requested_formats": [

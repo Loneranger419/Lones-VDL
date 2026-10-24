@@ -177,6 +177,11 @@ class VideoDetail(VideoOut):
     verified_at: datetime | None
     subtitles: list[str] = Field(default_factory=list, description="language codes")
     tags: list[str] = Field(default_factory=list)
+    chapter_count: int = Field(0, description="chapters in info.json; 0 when the video has none")
+    has_heatmap: bool = Field(False, description='"most replayed" data is available')
+    chapter_check_due: bool = Field(
+        False, description="a recent video without chapters that may be checked again"
+    )
     collection_ids: list[int] = Field(default_factory=list)
 
 
@@ -186,6 +191,23 @@ class VideoPage(BaseModel):
     hidden: int = Field(0, description="matches hidden by the preset's tag rules")
     offset: int
     limit: int
+
+
+class ChapterOut(BaseModel):
+    start: float
+    end: float
+    title: str
+
+
+class HeatPointOut(BaseModel):
+    start: float
+    end: float
+    value: float = Field(description="0..1, replayed more when higher")
+
+
+class ChaptersOut(BaseModel):
+    chapters: list[ChapterOut]
+    heatmap: list[HeatPointOut]
 
 
 class TagOut(BaseModel):

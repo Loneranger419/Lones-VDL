@@ -61,7 +61,8 @@ export function connectEvents(client: QueryClient): () => void {
 		if (SETTLED.has(job.status)) invalidateSoon(keys.policy, keys.accounts);
 		if (job.kind === 'expand' && TERMINAL.has(job.status)) invalidateSoon(keys.channels);
 		if (job.kind === 'verify' || job.kind === 'rescan') invalidateSoon(keys.videos, keys.stats);
-		if (job.kind === 'subtitles' && TERMINAL.has(job.status)) invalidateSoon(keys.videos);
+		if ((job.kind === 'subtitles' || job.kind === 'chapters') && TERMINAL.has(job.status))
+			invalidateSoon(keys.videos);
 	});
 	on('job.progress', (progress: JobProgress) => {
 		live.progress[progress.id] = progress;

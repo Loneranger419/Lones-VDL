@@ -151,9 +151,13 @@ concurrency, duplicate jobs, resume.
 - Autoplay on arrival at the Watch page is untested in a real browser (headless blocks it).
 - Video.js 10 is new (10.0.1, pinned). Consider upgrading after it matures; only
   `player.svelte` uses it.
-- **Chapters and key moments.** Import `chapters` from `metadata.json`; show a clickable list on
-  the Watch page and markers on the timeline. Also "most replayed" sections when yt-dlp provides
-  them. Optional per video; videos without chapters must work as they do now.
+- Chapters and "most replayed" are done (2026-10-24): read from `info.json` on request
+  (`services/chapters.py`, no migration), served as JSON and as a WebVTT chapters track that the
+  Video.js skin draws on its timeline, plus a chapter list and a replay graph on the Watch page.
+  A recent video missing chapters or replay data is asked about again when played (job kind
+  `chapters`, listing lane, at most every 24 h; `chapters_checked_at`); chapters are given up on at
+  14 days, replay data at 30 (it needs views).
+  Not wanted: chapter thumbnails.
 
 ## Findings that shaped the design
 

@@ -185,6 +185,24 @@ def add_subtitles(item: Path, files: list[Path]) -> list[str]:
     return sorted(added)
 
 
+def update_chapter_data(item: Path, chapters: Any, heatmap: Any) -> None:
+    """Store chapters / "most replayed" data found later in an archived item's info.json.
+
+    Only the non-empty ones are written. info.json is in checksums.json, so its entry is updated
+    too; the media is not rehashed."""
+    info_path = item / INFO_FILE
+    info = json.loads(info_path.read_text(encoding="utf-8")) if info_path.exists() else {}
+    for key, value in (("chapters", chapters), ("heatmap", heatmap)):
+        if value:
+            info[key] = value
+    _write_json(info_path, info)
+    sums_file = item / CHECKSUMS_FILE
+    if sums_file.exists():
+        sums = json.loads(sums_file.read_text(encoding="utf-8"))
+        sums["files"][INFO_FILE] = sha256_file(info_path)
+        _write_json(sums_file, sums)
+
+
 def promote(workdir: Path, dest: Path) -> None:
     """Move a finished item into place. Refuses to overwrite an existing archive item."""
     if dest.exists():

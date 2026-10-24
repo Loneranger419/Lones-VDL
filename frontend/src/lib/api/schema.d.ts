@@ -455,6 +455,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/videos/{video_pk}/chapters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chapters
+         * @description Chapters and "most replayed" sections from the archived info.json (empty if none).
+         */
+        get: operations["chapters_api_videos__video_pk__chapters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/videos/{video_pk}/chapters/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Chapters
+         * @description Ask the site again for chapters of a recent video that has none (at most daily).
+         *
+         *     Called when such a video is played. Returns the queued job, or null when no check is due.
+         */
+        post: operations["check_chapters_api_videos__video_pk__chapters_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/videos/{video_pk}/chapters.vtt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chapters Vtt
+         * @description The chapters as a WebVTT track, which the player draws on its timeline.
+         */
+        get: operations["chapters_vtt_api_videos__video_pk__chapters_vtt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/videos/{video_pk}/subtitles/{lang}.vtt": {
         parameters: {
             query?: never;
@@ -1132,6 +1194,22 @@ export interface components {
              */
             backfill: boolean;
         };
+        /** ChapterOut */
+        ChapterOut: {
+            /** Start */
+            start: number;
+            /** End */
+            end: number;
+            /** Title */
+            title: string;
+        };
+        /** ChaptersOut */
+        ChaptersOut: {
+            /** Chapters */
+            chapters: components["schemas"]["ChapterOut"][];
+            /** Heatmap */
+            heatmap: components["schemas"]["HeatPointOut"][];
+        };
         /** CheckOut */
         CheckOut: {
             /** Name */
@@ -1327,6 +1405,18 @@ export interface components {
             status: string;
             /** Version */
             version: string;
+        };
+        /** HeatPointOut */
+        HeatPointOut: {
+            /** Start */
+            start: number;
+            /** End */
+            end: number;
+            /**
+             * Value
+             * @description 0..1, replayed more when higher
+             */
+            value: number;
         };
         /**
          * Integrity
@@ -1747,6 +1837,24 @@ export interface components {
             subtitles?: string[];
             /** Tags */
             tags?: string[];
+            /**
+             * Chapter Count
+             * @description chapters in info.json; 0 when the video has none
+             * @default 0
+             */
+            chapter_count: number;
+            /**
+             * Has Heatmap
+             * @description "most replayed" data is available
+             * @default false
+             */
+            has_heatmap: boolean;
+            /**
+             * Chapter Check Due
+             * @description a recent video without chapters that may be checked again
+             * @default false
+             */
+            chapter_check_due: boolean;
             /** Collection Ids */
             collection_ids?: number[];
         };
@@ -2618,6 +2726,99 @@ export interface operations {
         };
     };
     thumbnail_api_videos__video_pk__thumbnail_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_pk: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chapters_api_videos__video_pk__chapters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_pk: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChaptersOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_chapters_api_videos__video_pk__chapters_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_pk: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chapters_vtt_api_videos__video_pk__chapters_vtt_get: {
         parameters: {
             query?: never;
             header?: never;

@@ -65,7 +65,7 @@ class Lane:
 def default_lanes() -> list[Lane]:
     return [
         Lane("download", (JobKind.DOWNLOAD,), lambda: 1),
-        Lane("listing", (JobKind.EXPAND, JobKind.SUBTITLES), lambda: 1),
+        Lane("listing", (JobKind.EXPAND, JobKind.SUBTITLES, JobKind.CHAPTERS), lambda: 1),
         Lane("maintenance", (JobKind.VERIFY, JobKind.RESCAN), lambda: 1, needs_ytdlp=False),
     ]
 

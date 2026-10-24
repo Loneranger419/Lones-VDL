@@ -134,6 +134,8 @@ class Video(Base):
     verified_at: Mapped[datetime | None]
     # False until the tags in info.json have been read into video_tags.
     tags_indexed: Mapped[bool] = mapped_column(default=False, server_default=false())
+    # When the site was last asked for chapters of a video that had none (see services/chapters).
+    chapters_checked_at: Mapped[datetime | None]
 
     channel: Mapped[Channel | None] = relationship(back_populates="videos")
     tag_rows: Mapped[list[VideoTag]] = relationship(
@@ -234,6 +236,7 @@ class JobKind(StrEnum):
     VERIFY = "verify"
     RESCAN = "rescan"
     SUBTITLES = "subtitles"  # fetch captions for an archived video, on request
+    CHAPTERS = "chapters"  # look again for chapters of a recent video that had none
 
 
 class JobStatus(StrEnum):

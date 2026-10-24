@@ -1352,6 +1352,141 @@
         }
       }
     },
+    "/api/videos/{video_pk}/chapters": {
+      "get": {
+        "tags": [
+          "videos"
+        ],
+        "summary": "Chapters",
+        "description": "Chapters and \"most replayed\" sections from the archived info.json (empty if none).",
+        "operationId": "chapters_api_videos__video_pk__chapters_get",
+        "parameters": [
+          {
+            "name": "video_pk",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Video Pk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChaptersOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/videos/{video_pk}/chapters/check": {
+      "post": {
+        "tags": [
+          "videos"
+        ],
+        "summary": "Check Chapters",
+        "description": "Ask the site again for chapters of a recent video that has none (at most daily).\n\nCalled when such a video is played. Returns the queued job, or null when no check is due.",
+        "operationId": "check_chapters_api_videos__video_pk__chapters_check_post",
+        "parameters": [
+          {
+            "name": "video_pk",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Video Pk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/JobOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Check Chapters Api Videos  Video Pk  Chapters Check Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/videos/{video_pk}/chapters.vtt": {
+      "get": {
+        "tags": [
+          "videos"
+        ],
+        "summary": "Chapters Vtt",
+        "description": "The chapters as a WebVTT track, which the player draws on its timeline.",
+        "operationId": "chapters_vtt_api_videos__video_pk__chapters_vtt_get",
+        "parameters": [
+          {
+            "name": "video_pk",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Video Pk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/videos/{video_pk}/subtitles/{lang}.vtt": {
       "get": {
         "tags": [
@@ -3423,6 +3558,53 @@
         "type": "object",
         "title": "ChannelUpdate"
       },
+      "ChapterOut": {
+        "properties": {
+          "start": {
+            "type": "number",
+            "title": "Start"
+          },
+          "end": {
+            "type": "number",
+            "title": "End"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "title"
+        ],
+        "title": "ChapterOut"
+      },
+      "ChaptersOut": {
+        "properties": {
+          "chapters": {
+            "items": {
+              "$ref": "#/components/schemas/ChapterOut"
+            },
+            "type": "array",
+            "title": "Chapters"
+          },
+          "heatmap": {
+            "items": {
+              "$ref": "#/components/schemas/HeatPointOut"
+            },
+            "type": "array",
+            "title": "Heatmap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chapters",
+          "heatmap"
+        ],
+        "title": "ChaptersOut"
+      },
       "CheckOut": {
         "properties": {
           "name": {
@@ -3986,6 +4168,30 @@
           "version"
         ],
         "title": "Health"
+      },
+      "HeatPointOut": {
+        "properties": {
+          "start": {
+            "type": "number",
+            "title": "Start"
+          },
+          "end": {
+            "type": "number",
+            "title": "End"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value",
+            "description": "0..1, replayed more when higher"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "value"
+        ],
+        "title": "HeatPointOut"
       },
       "Integrity": {
         "type": "string",
@@ -5195,6 +5401,24 @@
             },
             "type": "array",
             "title": "Tags"
+          },
+          "chapter_count": {
+            "type": "integer",
+            "title": "Chapter Count",
+            "description": "chapters in info.json; 0 when the video has none",
+            "default": 0
+          },
+          "has_heatmap": {
+            "type": "boolean",
+            "title": "Has Heatmap",
+            "description": "\"most replayed\" data is available",
+            "default": false
+          },
+          "chapter_check_due": {
+            "type": "boolean",
+            "title": "Chapter Check Due",
+            "description": "a recent video without chapters that may be checked again",
+            "default": false
           },
           "collection_ids": {
             "items": {

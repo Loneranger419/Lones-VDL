@@ -101,6 +101,7 @@ export function errorMessage(error: unknown): string {
 
 /** URLs for media the browser loads directly (session cookie authenticates them). */
 export const mediaUrl = {
+	chapters: (id: number) => `/api/videos/${id}/chapters.vtt`,
 	video: (id: number) => `/api/videos/${id}/media`,
 	thumbnail: (id: number) => `/api/videos/${id}/thumbnail`,
 	subtitle: (id: number, lang: string) => `/api/videos/${id}/subtitles/${lang}.vtt`,

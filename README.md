@@ -55,7 +55,7 @@ cd frontend; npm run api
 |------|---------------|
 | Home | Continue watching and recently archived (one line each), recently uploaded (four rows), downloads in progress, channels |
 | Library | Everything archived, newest uploads first by default: search (top bar), kind / progress / channel / tag filters, tag preset, sort. Tags show under each video's description and link here |
-| Watch | Player with captions (not downloaded with a video; "Get subtitles" fetches them as a small job) and resume; remembers volume, mute, speed, and captions on/off in this browser (with captions on but none downloaded, a 5 second note points to Get subtitles); marks a video watched at 90%; up next with autoplay; a video that is playing when you leave for another page carries on in a small corner player (expand or close it); collection playlists via `?collection=` |
+| Watch | Player with captions (not downloaded with a video; "Get subtitles" fetches them as a small job) and resume; remembers volume, mute, speed, and captions on/off in this browser (with captions on but none downloaded, a 5 second note points to Get subtitles); marks a video watched at 90%; chapters on the timeline and in a list, and a "most replayed" graph under the player (from the archived `info.json`, when YouTube or Twitch provided them; a video missing chapters (under 14 days old) or replay data (under 30) is checked again when played, at most daily); up next with autoplay; a video that is playing when you leave for another page carries on in a small corner player (expand or close it); collection playlists via `?collection=` |
 | Downloads | Paste a video, playlist, or channel link; live progress, cancel, retry (optionally with an account), approve personal-account videos, full yt-dlp log per job |
 | Channels | Per-channel auto-archive (what to include, quality, "Check now"), creator linking; Creators tab groups channels |
 | Collections | Your own ordered playlists |
@@ -158,7 +158,7 @@ Main areas:
 | Area | Endpoints |
 |------|-----------|
 | Downloads | `POST /api/jobs` with a video, playlist, or channel URL; `POST /api/videos/{id}/subtitles` fetches captions later (`watch`, `backfill`, `tabs` for channels); list (`order=queue` puts running first, then start order)/cancel/retry/log; `GET /api/jobs/queue` counts waiting jobs by type |
-| Library | `GET /api/videos` (search, filters, sort, paging), `/continue`, `/{id}/related`, progress, watched, delete; `tag` / `exclude_tag` / `preset` filters (`preset` is an id, `default`, or `none`; the page reports `hidden`) |
+| Library | `GET /api/videos` (search, filters, sort, paging), `/continue`, `/{id}/related`, `/{id}/chapters` (+ `chapters.vtt`), `POST /{id}/chapters/check` (re-check a recent video missing chapters or replay data; at most daily; given up at 14 / 30 days), progress, watched, delete; `tag` / `exclude_tag` / `preset` filters (`preset` is an id, `default`, or `none`; the page reports `hidden`) |
 | Tags and presets | `GET /api/tags` (most used first, `q` to search); `GET/POST /api/presets`, `PUT/DELETE /api/presets/{id}`, `PUT /api/presets/default` |
 | Media | `/api/videos/{id}/media` (Range), `/thumbnail`, `/subtitles/{lang}.vtt`, `/api/channels/{id}/avatar` |
 | Channels | list, details, `PATCH` watch settings, `POST /{id}/check` |

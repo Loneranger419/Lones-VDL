@@ -19,6 +19,7 @@ export const keys = {
 	videoPages: (query: VideoQuery) => ['videos', 'pages', query] as const,
 	video: (id: number) => ['videos', 'detail', id] as const,
 	related: (id: number) => ['videos', 'related', id] as const,
+	chapters: (id: number) => ['videos', 'chapters', id] as const,
 	continueWatching: ['videos', 'continue'] as const,
 	channels: ['channels'] as const,
 	channel: (id: number) => ['channels', id] as const,
@@ -86,6 +87,13 @@ export const queries = {
 			queryKey: keys.related(id),
 			queryFn: () =>
 				call(api.GET('/api/videos/{video_pk}/related', { params: { path: { video_pk: id } } }))
+		}),
+	chapters: (id: number) =>
+		queryOptions({
+			queryKey: keys.chapters(id),
+			queryFn: () =>
+				call(api.GET('/api/videos/{video_pk}/chapters', { params: { path: { video_pk: id } } })),
+			staleTime: Infinity
 		}),
 	continueWatching: () =>
 		queryOptions({

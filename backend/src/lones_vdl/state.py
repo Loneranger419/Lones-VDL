@@ -18,6 +18,7 @@ from lones_vdl.jobs.ytdlp_updates import YtdlpUpdater
 from lones_vdl.services import accounts as account_service
 from lones_vdl.services import tags as tag_service
 from lones_vdl.services.auth import LoginThrottle
+from lones_vdl.services.chapter_check import ChaptersPipeline
 from lones_vdl.services.downloads import DownloadPipeline
 from lones_vdl.services.expand import ExpandPipeline
 from lones_vdl.services.integrity import RescanPipeline, VerifyPipeline
@@ -65,6 +66,7 @@ class Services:
                 JobKind.DOWNLOAD: DownloadPipeline(settings, sessions, ytdlp, reporter, policy),
                 JobKind.EXPAND: ExpandPipeline(settings, sessions, ytdlp, reporter, policy),
                 JobKind.SUBTITLES: SubtitlesPipeline(settings, sessions, ytdlp, reporter, policy),
+                JobKind.CHAPTERS: ChaptersPipeline(settings, sessions, ytdlp, reporter, policy),
                 JobKind.VERIFY: VerifyPipeline(settings, sessions, reporter),
                 JobKind.RESCAN: RescanPipeline(settings, sessions, reporter),
             },

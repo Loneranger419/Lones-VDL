@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from lones_vdl.api.deps import AuthDep, DbDep, ServicesDep
+from lones_vdl.db import utcnow
 from lones_vdl.db.models import ContentKind, Integrity, Video
 from lones_vdl.schemas import (
+    ChaptersOut,
     JobOut,
     ProgressUpdate,
     RelatedOut,
@@ -21,7 +23,8 @@ from lones_vdl.schemas import (
     VideoPage,
     WatchedUpdate,
 )
-from lones_vdl.services import downloads, library, presets, subtitles
+from lones_vdl.services import chapter_check, downloads, library, presets, subtitles
+from lones_vdl.services import chapters as chapter_service
 from lones_vdl.services import jobs as job_service
 from lones_vdl.storage import archive
 
@@ -121,8 +124,14 @@ def continue_watching(db: DbDep, limit: Annotated[int, Query(ge=1, le=100)] = 12
 @router.get("/{video_pk}", response_model=VideoDetail)
 def get_video(video_pk: int, db: DbDep, services: ServicesDep):
     video = _get(db, video_pk)
+    found = chapter_service.load(services.settings, video)
     return VideoDetail.model_validate(video).model_copy(
         update={
+            "chapter_count": len(found.chapters),
+            "has_heatmap": bool(found.heatmap),
+            "chapter_check_due": chapter_service.check_due(
+                video, len(found.chapters), len(found.heatmap), utcnow()
+            ),
             "subtitles": library.subtitle_langs(services.settings, video),
             "collection_ids": library.collection_ids(db, video.id),
             "tags": video.tags,
@@ -208,6 +217,49 @@ def thumbnail(video_pk: int, db: DbDep, services: ServicesDep) -> FileResponse:
     if video.thumbnail_file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no thumbnail")
     return archive_file(services.settings.archive_root, f"{video.directory}/{video.thumbnail_file}")
+
+
+@router.get("/{video_pk}/chapters", response_model=ChaptersOut)
+def chapters(video_pk: int, db: DbDep, services: ServicesDep):
+    """Chapters and "most replayed" sections from the archived info.json (empty if none)."""
+    found = chapter_service.load(services.settings, _get(db, video_pk))
+    return ChaptersOut(
+        chapters=[vars(c) for c in found.chapters], heatmap=[vars(h) for h in found.heatmap]
+    )
+
+
+@router.post("/{video_pk}/chapters/check", response_model=JobOut | None)
+def check_chapters(video_pk: int, db: DbDep, services: ServicesDep):
+    """Ask the site again for chapters of a recent video that has none (at most daily).
+
+    Called when such a video is played. Returns the queued job, or null when no check is due.
+    """
+    video = _get(db, video_pk)
+    try:
+        job = chapter_check.enqueue(db, services.settings, video)
+    except downloads.EnqueueError as exc:
+        return JSONResponse(
+            status_code=exc.status,
+            content={"detail": exc.message, "kind": exc.kind, **exc.extra},
+        )
+    db.commit()
+    if job is not None:
+        services.bus.publish("job", job_service.job_payload(job))
+        services.worker.wake()
+    return job
+
+
+@router.get("/{video_pk}/chapters.vtt")
+def chapters_vtt(video_pk: int, db: DbDep, services: ServicesDep) -> PlainTextResponse:
+    """The chapters as a WebVTT track, which the player draws on its timeline."""
+    found = chapter_service.load(services.settings, _get(db, video_pk))
+    if not found.chapters:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no chapters")
+    return PlainTextResponse(
+        chapter_service.to_vtt(found.chapters),
+        media_type="text/vtt",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @router.get("/{video_pk}/subtitles/{lang}.vtt")

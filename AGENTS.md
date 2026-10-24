@@ -195,6 +195,9 @@ account restrictions. Implemented in `services/policy.py`, `services/accounts.py
 - Live updates: `#lib/api/events.svelte.js` patches job lists and invalidates query keys;
   download progress lives in `live.progress`, not in the query cache.
 - Filters and tabs live in the URL (`goto(url, { replace: true, reset: false })`).
+- Chapters and the "most replayed" heatmap are read from `info.json` per request (cached by file
+  identity in `services/chapters.py`); the player gets chapters as a `<track kind="chapters">`. Playing a video missing chapters (under 14 days old) or replay data (under 30)
+  calls `POST /api/videos/{id}/chapters/check` (a `chapters` listing-lane job, at most every 24 h).
 - The player library is only referenced in `#lib/components/app/player.svelte`. The corner mini player
   (`mini-player.svelte`, state in `#lib/mini-player.svelte.ts`) is a second `Player` that the Watch
   page hands the video to in `beforeNavigate`; it is a hand-off from the saved position, not one

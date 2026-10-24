@@ -16,6 +16,8 @@
 	import Player, { type Track } from '#lib/components/app/player.svelte';
 	import Description from '#lib/components/app/description.svelte';
 	import { mini } from '#lib/mini-player.svelte.js';
+	import HeatmapStrip from '#lib/components/app/heatmap-strip.svelte';
+	import ChapterList from '#lib/components/app/chapter-list.svelte';
 	import VideoCard from '#lib/components/app/video-card.svelte';
 	import VideoMenu from '#lib/components/app/video-menu.svelte';
 	import ChannelAvatar from '#lib/components/app/channel-avatar.svelte';
@@ -46,6 +48,12 @@
 
 	// The detail query refetches on live events; only render once it matches this URL.
 	const current = $derived(video.data?.id === id ? video.data : undefined);
+
+	const hasChapterData = $derived(!!current && (current.chapter_count > 0 || current.has_heatmap));
+	const chapterData = createQuery(() => ({
+		...queries.chapters(id),
+		enabled: hasChapterData
+	}));
 
 	const inCollection = $derived(
 		collectionId !== null && collection.data?.videos.some((v) => v.id === id)
@@ -101,6 +109,8 @@
 	let lastPosition = 0;
 	let crossedWatched = false;
 	let savingFor = 0; // the video the counters above belong to
+	let position = $state(0); // playback position, for the chapter list and the replay graph
+	let chapterCheckFor = 0; // the video whose chapters were already asked about
 
 	function save(position: number, keepalive = false) {
 		if (!savingFor) return;
@@ -114,12 +124,12 @@
 			.catch(() => {}); // progress is best-effort; the next save catches up
 	}
 
-	function ontime(position: number, duration: number) {
-		lastPosition = position;
-		if (Math.abs(position - lastSaved) >= SAVE_EVERY) save(position);
-		if (!crossedWatched && duration && position >= duration * 0.9) {
+	function ontime(seconds: number, duration: number) {
+		position = lastPosition = seconds;
+		if (Math.abs(seconds - lastSaved) >= SAVE_EVERY) save(seconds);
+		if (!crossedWatched && duration && seconds >= duration * 0.9) {
 			crossedWatched = true;
-			save(position);
+			save(seconds);
 			setTimeout(() => queryClient.invalidateQueries({ queryKey: keys.video(savingFor) }), 500);
 		}
 	}
@@ -136,7 +146,7 @@
 		flush(false);
 		queryClient.invalidateQueries({ queryKey: keys.continueWatching });
 		savingFor = nextId;
-		lastSaved = lastPosition = startFor(current);
+		lastSaved = lastPosition = position = startFor(current);
 		crossedWatched = false;
 		cancelCountdown();
 	});
@@ -221,6 +231,25 @@
 		onError: (e) => toast.error(e.message)
 	}));
 
+	// A recent video without chapters may get some later: ask once when it is opened. The server
+	// decides (at most daily, never for old videos), so this is cheap when nothing is due.
+	const checkChapters = createMutation(() => ({
+		mutationFn: () =>
+			call(
+				api.POST('/api/videos/{video_pk}/chapters/check', {
+					params: { path: { video_pk: id } }
+				})
+			),
+		onSuccess: (job) => {
+			if (job) queryClient.invalidateQueries({ queryKey: keys.jobs });
+		}
+	}));
+	$effect(() => {
+		if (!current?.chapter_check_due || chapterCheckFor === current.id) return;
+		chapterCheckFor = current.id;
+		checkChapters.mutate();
+	});
+
 	// Subtitles are not fetched while archiving; this asks for them (a job under Downloads).
 	let subtitlesRequestedFor = $state(0);
 	const fetchSubtitles = createMutation(() => ({
@@ -289,6 +318,7 @@
 						src={mediaUrl.video(current.id)}
 						poster={current.has_thumbnail ? mediaUrl.thumbnail(current.id) : undefined}
 						{tracks}
+						chapters={current.chapter_count > 0 ? mediaUrl.chapters(current.id) : undefined}
 						startAt={startFor(current)}
 						autoplay
 						{ontime}
@@ -311,6 +341,19 @@
 					</div>
 				{/if}
 			</div>
+
+			{#if chapterData.data?.heatmap.length && current.duration_seconds}
+				<HeatmapStrip
+					heatmap={chapterData.data.heatmap}
+					chapters={chapterData.data.chapters}
+					total={current.duration_seconds}
+					{position}
+					onseek={(s) => {
+						position = s;
+						player?.jump(s);
+					}}
+				/>
+			{/if}
 
 			<div class="space-y-3">
 				<h1 class="text-xl leading-snug font-semibold sm:text-2xl">{current.title}</h1>
@@ -369,6 +412,14 @@
 						<VideoMenu video={current} ondeleted={() => goto('/library')} />
 					</div>
 				</div>
+
+				{#if chapterData.data?.chapters.length}
+					<ChapterList
+						chapters={chapterData.data.chapters}
+						{position}
+						onseek={(s) => player?.seek(s)}
+					/>
+				{/if}
 
 				<div class="rounded-xl bg-muted/50 p-3 sm:p-4">
 					<div class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">

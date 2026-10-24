@@ -16,6 +16,7 @@
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import ScanIcon from '@lucide/svelte/icons/scan-search';
 	import CaptionsIcon from '@lucide/svelte/icons/captions';
+	import ListChecksIcon from '@lucide/svelte/icons/list-checks';
 	import XIcon from '@lucide/svelte/icons/x';
 	import RotateIcon from '@lucide/svelte/icons/rotate-ccw';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
@@ -35,7 +36,8 @@
 			expand: ListIcon,
 			verify: ShieldCheckIcon,
 			rescan: ScanIcon,
-			subtitles: CaptionsIcon
+			subtitles: CaptionsIcon,
+			chapters: ListChecksIcon
 		}[job.kind] ?? FilmIcon
 	);
 	const live_ = $derived(live.progress[job.id]);
@@ -62,6 +64,7 @@
 			if (job.content_kind === 'short') parts.push('Short');
 			parts.push(QUALITY_LABELS[job.quality] ?? job.quality);
 		} else if (job.kind === 'subtitles') parts.push('Subtitles');
+		else if (job.kind === 'chapters') parts.push('Checking for chapters');
 		if (job.status === 'queued' && job.attempts > 0)
 			parts.push(`retry ${job.attempts + 1}/${job.max_attempts}`);
 		if (job.auth_tier === 1 && job.status !== 'completed') parts.push('alternate account');
@@ -81,6 +84,12 @@
 			return bits.join(', ');
 		}
 		if (job.kind === 'subtitles') return 'Subtitles added';
+		if (job.kind === 'chapters')
+			return r.chapters
+				? `${r.chapters} chapters found`
+				: r.heatmap
+					? 'Replay data found'
+					: 'No chapters yet';
 		if (job.kind === 'verify') {
 			return `${r.checked ?? 0} checked: ${r.ok ?? 0} OK, ${r.mismatch ?? 0} changed, ${r.missing ?? 0} missing`;
 		}

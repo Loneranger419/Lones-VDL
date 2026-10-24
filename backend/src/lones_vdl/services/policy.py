@@ -61,7 +61,7 @@ BACKOFF_SECONDS: tuple[float, ...] = (15 * 60, 30 * 60, 60 * 60, 2 * 60 * 60, 6 
 PAUSE_KEY = "policy.pause"
 NEXT_VIDEO_KEY = "policy.next_video_at"
 # Jobs that talk to YouTube; maintenance jobs (verify, rescan) are never gated.
-YOUTUBE_KINDS = (JobKind.DOWNLOAD, JobKind.EXPAND, JobKind.SUBTITLES)
+YOUTUBE_KINDS = (JobKind.DOWNLOAD, JobKind.EXPAND, JobKind.SUBTITLES, JobKind.CHAPTERS)
 
 
 @dataclass(frozen=True)

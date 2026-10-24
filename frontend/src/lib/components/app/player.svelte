@@ -15,6 +15,7 @@
 		src,
 		poster,
 		tracks = [],
+		chapters,
 		startAt = 0,
 		autoplay = false,
 		ontime,
@@ -24,6 +25,8 @@
 		src: string;
 		poster?: string;
 		tracks?: Track[];
+		/** WebVTT chapters track; the skin draws the chapters on its timeline. */
+		chapters?: string;
 		/** Seconds to resume from, applied once the media is ready. */
 		startAt?: number;
 		autoplay?: boolean;
@@ -121,6 +124,11 @@
 		if (initialAutoplay) video.play().catch(() => {}); // blocked autoplay just stays paused
 	}
 
+	/** Move to a time without changing whether it plays (scrubbing). */
+	export function jump(seconds: number) {
+		if (video) video.currentTime = seconds;
+	}
+
 	/** Seek and play, used for timestamp links in the description. */
 	export function seek(seconds: number) {
 		if (!video) return;
@@ -160,6 +168,9 @@
 				onvolumechange={() => video && savePrefs({ volume: video.volume, muted: video.muted })}
 				onratechange={() => video && savePrefs({ rate: video.playbackRate })}
 			>
+				{#if chapters}
+					<track kind="chapters" src={chapters} srclang="en" label="Chapters" default />
+				{/if}
 				{#each tracks as track (track.lang)}
 					<track kind="subtitles" src={track.src} srclang={track.lang} label={track.label} />
 				{/each}
