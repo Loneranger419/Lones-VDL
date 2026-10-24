@@ -3,7 +3,7 @@
 Self-hosted YouTube archive: download with yt-dlp, preserve media and metadata, browse and
 watch in a web UI. Runs in Docker on a Linux VM; developed on Windows.
 
-> v2 rewrite in progress. See [AGENTS.md](AGENTS.md) for the plan and current phase.
+> v2 rewrite in progress. See [PLAN.md](PLAN.md) for the plan and current phase.
 > The previous version lives on the `v1` branch.
 
 ## Layout
@@ -53,8 +53,8 @@ cd frontend; npm run api
 
 | Page | What it's for |
 |------|---------------|
-| Home | Continue watching, downloads in progress, recently archived, channels |
-| Library | Everything archived: search (top bar), kind / progress / channel filters, sort |
+| Home | Continue watching and recently archived (one line each), recently uploaded (four rows), downloads in progress, channels |
+| Library | Everything archived, newest uploads first by default: search (top bar), kind / progress / channel filters, sort |
 | Watch | Player with captions (not downloaded with a video; "Get subtitles" fetches them as a small job) and resume; marks a video watched at 90%; up next with autoplay; collection playlists via `?collection=` |
 | Downloads | Paste a video, playlist, or channel link; live progress, cancel, retry (optionally with an account), approve personal-account videos, full yt-dlp log per job |
 | Channels | Per-channel auto-archive (what to include, quality, "Check now"), creator linking; Creators tab groups channels |

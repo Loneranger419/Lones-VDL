@@ -155,6 +155,9 @@ account restrictions. Implemented in `services/policy.py`, `services/accounts.py
   (`enqueue`, `wait_for_job`, `add_account`, `calls`).
 - Scripted file edits on Windows: always pass `encoding="utf-8"`; prefer the Edit tool. Files
   are CRLF in the working tree.
+- `services/state_transfer.py` backs `lones-vdl state export|import` (database state for moving a
+  library to another install; excludes accounts, jobs, policy counters, sessions). If you add a
+  table, decide whether it belongs in the bundle and update `_LOCAL_TABLES` / the tests.
 - Channel artwork lives at `<archive>/<platform>/_channels/<channel_id>/`; rescan skips `_*`.
 
 ## Frontend conventions (SvelteKit 3)
@@ -177,6 +180,17 @@ account restrictions. Implemented in `services/policy.py`, `services/accounts.py
 - Service worker: `src/service-worker/index.ts` with its own `tsconfig.json`; it never caches
   `/api/`. PWA icons in `static/icons/` come from the logo SVG; keep them in sync with
   `logo.svelte` and `static/favicon.svg`.
+
+## Keeping docs current
+
+Update the docs in the same change as the code, not later:
+
+- `PLAN.md`: the plan, phase status, backlog, and findings. Change it whenever status moves.
+- `AGENTS.md`: rules and conventions for working in the repo. Change it when one changes.
+- `README.md`: behavior, commands, and API as users see them.
+- Before committing, grep these three files for pointers that no longer match (file names, branch
+  names, "see X for Y", command names, defaults) and fix them.
+- Keep each fact in one place; link to it from the others instead of copying it.
 
 ## Out of scope (until decided otherwise)
 

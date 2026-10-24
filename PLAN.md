@@ -4,7 +4,7 @@ The plan and where it stands. Rules and conventions for working in the code are 
 usage and API are in `README.md`. v1 is preserved on the `v1` branch.
 
 **Current state (2026-10-23):** Phases 0–4 done, plus the YouTube download policy (below).
-Uncommitted work on `main`. **Next: Phase 5 (deploy to the LXC/VM) — start only when the user asks.**
+Everything is committed and pushed to `main`. **Next: Phase 5 (deploy to the LXC/VM) — start only when the user asks.**
 
 ## Phases
 
