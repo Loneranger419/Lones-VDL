@@ -16,6 +16,7 @@ from lones_vdl.jobs.scheduler import ChannelScheduler
 from lones_vdl.jobs.worker import Worker, default_lanes
 from lones_vdl.jobs.ytdlp_updates import YtdlpUpdater
 from lones_vdl.services import accounts as account_service
+from lones_vdl.services import tags as tag_service
 from lones_vdl.services.auth import LoginThrottle
 from lones_vdl.services.downloads import DownloadPipeline
 from lones_vdl.services.expand import ExpandPipeline
@@ -88,6 +89,8 @@ class Services:
 
     async def start(self) -> None:
         self.bus.bind(asyncio.get_running_loop())
+        # Videos archived before tags existed: read their info.json once, off the event loop.
+        await asyncio.to_thread(tag_service.backfill, self.settings, self.sessions)
         await self.worker.start()
         await self.scheduler.start()
         await self.updater.start()

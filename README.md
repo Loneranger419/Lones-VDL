@@ -54,7 +54,7 @@ cd frontend; npm run api
 | Page | What it's for |
 |------|---------------|
 | Home | Continue watching and recently archived (one line each), recently uploaded (four rows), downloads in progress, channels |
-| Library | Everything archived, newest uploads first by default: search (top bar), kind / progress / channel filters, sort |
+| Library | Everything archived, newest uploads first by default: search (top bar), kind / progress / channel / tag filters, tag preset, sort. Tags show under each video's description and link here |
 | Watch | Player with captions (not downloaded with a video; "Get subtitles" fetches them as a small job) and resume; marks a video watched at 90%; up next with autoplay; collection playlists via `?collection=` |
 | Downloads | Paste a video, playlist, or channel link; live progress, cancel, retry (optionally with an account), approve personal-account videos, full yt-dlp log per job |
 | Channels | Per-channel auto-archive (what to include, quality, "Check now"), creator linking; Creators tab groups channels |
@@ -158,7 +158,8 @@ Main areas:
 | Area | Endpoints |
 |------|-----------|
 | Downloads | `POST /api/jobs` with a video, playlist, or channel URL; `POST /api/videos/{id}/subtitles` fetches captions later (`watch`, `backfill`, `tabs` for channels); list (`order=queue` puts running first, then start order)/cancel/retry/log; `GET /api/jobs/queue` counts waiting jobs by type |
-| Library | `GET /api/videos` (search, filters, sort, paging), `/continue`, `/{id}/related`, progress, watched, delete |
+| Library | `GET /api/videos` (search, filters, sort, paging), `/continue`, `/{id}/related`, progress, watched, delete; `tag` / `exclude_tag` / `preset` filters (`preset` is an id, `default`, or `none`; the page reports `hidden`) |
+| Tags and presets | `GET /api/tags` (most used first, `q` to search); `GET/POST /api/presets`, `PUT/DELETE /api/presets/{id}`, `PUT /api/presets/default` |
 | Media | `/api/videos/{id}/media` (Range), `/thumbnail`, `/subtitles/{lang}.vtt`, `/api/channels/{id}/avatar` |
 | Channels | list, details, `PATCH` watch settings, `POST /{id}/check` |
 | Creators, collections | CRUD; collections keep a user-defined order |

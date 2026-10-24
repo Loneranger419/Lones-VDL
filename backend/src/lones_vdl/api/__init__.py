@@ -12,8 +12,10 @@ from lones_vdl.api import (
     health,
     jobs,
     policy,
+    presets,
     settings,
     system,
+    tags,
     videos,
 )
 
@@ -29,6 +31,8 @@ for module in (
     collections,
     accounts,
     policy,
+    presets,
+    tags,
     settings,
     system,
 ):

@@ -4,7 +4,7 @@ from datetime import date, datetime
 from enum import IntEnum, StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, BigInteger, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, ForeignKey, Index, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from lones_vdl.db.base import Base, utcnow
@@ -132,11 +132,20 @@ class Video(Base):
     archived_at: Mapped[datetime] = mapped_column(default=utcnow)
     integrity: Mapped[str] = mapped_column(String(20), default=Integrity.UNVERIFIED)
     verified_at: Mapped[datetime | None]
+    # False until the tags in info.json have been read into video_tags.
+    tags_indexed: Mapped[bool] = mapped_column(default=False, server_default=false())
 
     channel: Mapped[Channel | None] = relationship(back_populates="videos")
+    tag_rows: Mapped[list[VideoTag]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True, order_by="VideoTag.label"
+    )
     progress: Mapped[WatchProgress | None] = relationship(
         back_populates="video", cascade="all, delete-orphan", passive_deletes=True
     )
+
+    @property
+    def tags(self) -> list[str]:
+        return [row.label for row in self.tag_rows]
 
     # Flattened for API schemas; load with selectinload(Video.progress) to avoid N+1.
     @property
@@ -264,6 +273,19 @@ class JobStage(StrEnum):
     DOWNLOADING = "downloading"
     PROCESSING = "processing"
     DONE = "done"
+
+
+class VideoTag(Base):
+    """One tag of one video. `tag` is the comparison key (lowercase), `label` what to show."""
+
+    __tablename__ = "video_tags"
+    __table_args__ = (Index("ix_video_tags_tag", "tag"),)
+
+    video_pk: Mapped[int] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag: Mapped[str] = mapped_column(String(100), primary_key=True)
+    label: Mapped[str] = mapped_column(String(100))
 
 
 class Job(Base):

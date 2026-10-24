@@ -378,6 +378,20 @@
 					{:else}
 						<p class="text-sm text-muted-foreground">No description.</p>
 					{/if}
+					{#if current.tags?.length}
+						<!-- Links show every video with the tag, even ones the default preset hides. -->
+						<ul class="mt-3 flex flex-wrap gap-1.5" aria-label="Tags">
+							{#each current.tags as tag (tag)}
+								<li>
+									<Badge
+										variant="outline"
+										class="hover:bg-muted"
+										href="/library?tag={encodeURIComponent(tag)}&preset=none">{tag}</Badge
+									>
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				</div>
 			</div>
 		{/if}

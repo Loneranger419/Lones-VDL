@@ -74,6 +74,8 @@ def info_for(video_id: str) -> dict:
         "height": 1280 if short else 720,
         "view_count": 1234,
         "like_count": 56,
+        # Ids containing "asmr" get that tag too; the duplicate differs only in case.
+        "tags": ["Sleep", "ASMR", "asmr"] if "asmr" in video_id else ["Sleep", "Fake"],
         "format_id": "247+251",
         "ext": "webm",
         "requested_formats": [

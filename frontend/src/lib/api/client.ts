@@ -33,6 +33,8 @@ export type Stats = Schemas['StatsOut'];
 export type DoctorReport = Schemas['DoctorReport'];
 export type YtdlpStatus = Schemas['YtdlpStatus'];
 export type RuntimeSettings = Schemas['RuntimeSettings'];
+export type FilterPreset = Schemas['PresetOut'];
+export type TagCount = Schemas['TagOut'];
 
 /** An API error with the server's message (FastAPI `detail`) and error kind, if any. */
 export class ApiError extends Error {

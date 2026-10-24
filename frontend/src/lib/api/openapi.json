@@ -812,6 +812,66 @@
             }
           },
           {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "has all of these tags",
+              "title": "Tag"
+            },
+            "description": "has all of these tags"
+          },
+          {
+            "name": "exclude_tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "has none of these",
+              "title": "Exclude Tag"
+            },
+            "description": "has none of these"
+          },
+          {
+            "name": "preset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "filter preset: an id, 'default', or 'none' (the default)",
+              "title": "Preset"
+            },
+            "description": "filter preset: an id, 'default', or 'none' (the default)"
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
@@ -1087,6 +1147,22 @@
               "minimum": 1,
               "default": 12,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "preset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Preset"
             }
           }
         ],
@@ -2417,6 +2493,259 @@
         }
       }
     },
+    "/api/presets": {
+      "get": {
+        "tags": [
+          "presets"
+        ],
+        "summary": "List Presets",
+        "operationId": "list_presets_api_presets_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetBookOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "presets"
+        ],
+        "summary": "Create Preset",
+        "operationId": "create_preset_api_presets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/presets/default": {
+      "put": {
+        "tags": [
+          "presets"
+        ],
+        "summary": "Set Default",
+        "operationId": "set_default_api_presets_default_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefaultPresetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetBookOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/presets/{preset_id}": {
+      "put": {
+        "tags": [
+          "presets"
+        ],
+        "summary": "Update Preset",
+        "operationId": "update_preset_api_presets__preset_id__put",
+        "parameters": [
+          {
+            "name": "preset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Preset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresetIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "presets"
+        ],
+        "summary": "Delete Preset",
+        "operationId": "delete_preset_api_presets__preset_id__delete",
+        "parameters": [
+          {
+            "name": "preset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Preset Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tags": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "List Tags",
+        "description": "Most used first; `q` keeps tags containing that text.",
+        "operationId": "list_tags_api_tags_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagOut"
+                  },
+                  "title": "Response List Tags Api Tags Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings": {
       "get": {
         "tags": [
@@ -3542,6 +3871,26 @@
         "type": "object",
         "title": "CreatorUpdate"
       },
+      "DefaultPresetIn": {
+        "properties": {
+          "preset_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preset_id"
+        ],
+        "title": "DefaultPresetIn"
+      },
       "DoctorReport": {
         "properties": {
           "ok": {
@@ -4103,6 +4452,101 @@
         "title": "PolicyStatus",
         "description": "Use against the download policy's limits over the last 24 hours, per site."
       },
+      "PresetBookOut": {
+        "properties": {
+          "presets": {
+            "items": {
+              "$ref": "#/components/schemas/PresetOut"
+            },
+            "type": "array",
+            "title": "Presets"
+          },
+          "default_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "presets",
+          "default_id"
+        ],
+        "title": "PresetBookOut"
+      },
+      "PresetIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "include": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Include",
+            "description": "must have all"
+          },
+          "exclude": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 60,
+            "title": "Exclude",
+            "description": "must have none"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "PresetIn"
+      },
+      "PresetOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "include": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Include"
+          },
+          "exclude": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exclude"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "include",
+          "exclude"
+        ],
+        "title": "PresetOut"
+      },
       "ProgressUpdate": {
         "properties": {
           "position_seconds": {
@@ -4497,6 +4941,30 @@
         ],
         "title": "StatsOut"
       },
+      "TagOut": {
+        "properties": {
+          "tag": {
+            "type": "string",
+            "title": "Tag",
+            "description": "lowercase key used in filters"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "videos": {
+            "type": "integer",
+            "title": "Videos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tag",
+          "label",
+          "videos"
+        ],
+        "title": "TagOut"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -4737,6 +5205,13 @@
             "title": "Subtitles",
             "description": "language codes"
           },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
           "collection_ids": {
             "items": {
               "type": "integer"
@@ -4940,6 +5415,12 @@
           "total": {
             "type": "integer",
             "title": "Total"
+          },
+          "hidden": {
+            "type": "integer",
+            "title": "Hidden",
+            "description": "matches hidden by the preset's tag rules",
+            "default": 0
           },
           "offset": {
             "type": "integer",

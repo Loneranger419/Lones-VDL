@@ -780,6 +780,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Presets */
+        get: operations["list_presets_api_presets_get"];
+        put?: never;
+        /** Create Preset */
+        post: operations["create_preset_api_presets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/presets/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Default */
+        put: operations["set_default_api_presets_default_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/presets/{preset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Preset */
+        put: operations["update_preset_api_presets__preset_id__put"];
+        post?: never;
+        /** Delete Preset */
+        delete: operations["delete_preset_api_presets__preset_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tags
+         * @description Most used first; `q` keeps tags containing that text.
+         */
+        get: operations["list_tags_api_tags_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings": {
         parameters: {
             query?: never;
@@ -1205,6 +1278,11 @@ export interface components {
             /** Channel Ids */
             channel_ids?: number[] | null;
         };
+        /** DefaultPresetIn */
+        DefaultPresetIn: {
+            /** Preset Id */
+            preset_id: number | null;
+        };
         /** DoctorReport */
         DoctorReport: {
             /** Ok */
@@ -1394,6 +1472,39 @@ export interface components {
             /** Platforms */
             platforms: components["schemas"]["PlatformLimits"][];
         };
+        /** PresetBookOut */
+        PresetBookOut: {
+            /** Presets */
+            presets: components["schemas"]["PresetOut"][];
+            /** Default Id */
+            default_id: number | null;
+        };
+        /** PresetIn */
+        PresetIn: {
+            /** Name */
+            name: string;
+            /**
+             * Include
+             * @description must have all
+             */
+            include?: string[];
+            /**
+             * Exclude
+             * @description must have none
+             */
+            exclude?: string[];
+        };
+        /** PresetOut */
+        PresetOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Include */
+            include: string[];
+            /** Exclude */
+            exclude: string[];
+        };
         /** ProgressUpdate */
         ProgressUpdate: {
             /** Position Seconds */
@@ -1544,6 +1655,18 @@ export interface components {
             /** Archive Total Bytes */
             archive_total_bytes: number | null;
         };
+        /** TagOut */
+        TagOut: {
+            /**
+             * Tag
+             * @description lowercase key used in filters
+             */
+            tag: string;
+            /** Label */
+            label: string;
+            /** Videos */
+            videos: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1622,6 +1745,8 @@ export interface components {
              * @description language codes
              */
             subtitles?: string[];
+            /** Tags */
+            tags?: string[];
             /** Collection Ids */
             collection_ids?: number[];
         };
@@ -1675,6 +1800,12 @@ export interface components {
             items: components["schemas"]["VideoOut"][];
             /** Total */
             total: number;
+            /**
+             * Hidden
+             * @description matches hidden by the preset's tag rules
+             * @default 0
+             */
+            hidden: number;
             /** Offset */
             offset: number;
             /** Limit */
@@ -2193,6 +2324,12 @@ export interface operations {
                 kind?: components["schemas"]["ContentKind"] | null;
                 watch?: ("unwatched" | "in_progress" | "watched") | null;
                 integrity?: components["schemas"]["Integrity"] | null;
+                /** @description has all of these tags */
+                tag?: string[] | null;
+                /** @description has none of these */
+                exclude_tag?: string[] | null;
+                /** @description filter preset: an id, 'default', or 'none' (the default) */
+                preset?: string | null;
                 sort?: "archived_desc" | "archived_asc" | "uploaded_desc" | "uploaded_asc" | "title" | "duration_desc" | "duration_asc" | "watched_desc";
                 offset?: number;
                 limit?: number;
@@ -2352,6 +2489,7 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                preset?: string | null;
             };
             header?: never;
             path: {
@@ -3349,6 +3487,188 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyStatus"];
+                };
+            };
+        };
+    };
+    list_presets_api_presets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresetBookOut"];
+                };
+            };
+        };
+    };
+    create_preset_api_presets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_default_api_presets_default_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DefaultPresetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresetBookOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_preset_api_presets__preset_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                preset_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_preset_api_presets__preset_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                preset_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tags_api_tags_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

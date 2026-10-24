@@ -135,6 +135,10 @@ concurrency, duplicate jobs, resume.
 
 ## Backlog (agreed or noticed, not scheduled)
 
+- Tags are done (2026-10-23): migration `0005`, tag filter, filter presets with a default, tags
+  under the description. Not done: tag search in the top bar, channel-level tags, showing tags
+  on video cards, and Twitch tags (check what its extractor gives).
+
 - Per-download "compatible" H.264 option (remux/derivative, never touching the original).
 - Platform filter in the library and search. The API has no `platform` query param yet; add it
   with Twitch at the latest.

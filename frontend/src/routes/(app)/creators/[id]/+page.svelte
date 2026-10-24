@@ -23,14 +23,26 @@
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import UsersIcon from '@lucide/svelte/icons/users';
 	import FilmIcon from '@lucide/svelte/icons/film';
+	import HiddenNotice from '#lib/components/app/hidden-notice.svelte';
 
 	const id = $derived(Number(page.params.id));
 	const queryClient = useQueryClient();
 	const creator = createQuery(() => queries.creator(id));
 	const cr = $derived(creator.data?.id === id ? creator.data : undefined);
 
+	// The default tag preset hides some videos; this shows them again for this visit.
+	let showHidden = $state(false);
+	const presets = createQuery(() => queries.presets());
+	const presetName = $derived(
+		presets.data?.presets.find((p) => p.id === presets.data?.default_id)?.name ?? ''
+	);
+
 	const videos = createInfiniteQuery(() =>
-		queries.videoPages({ creator: id, sort: 'uploaded_desc' })
+		queries.videoPages({
+			creator: id,
+			sort: 'uploaded_desc',
+			preset: showHidden ? 'none' : 'default'
+		})
 	);
 	const items = $derived(videos.data?.pages.flatMap((p) => p.items) ?? []);
 	function more() {
@@ -105,6 +117,13 @@
 			{#if !cr.channels.length}<Button onclick={() => (editing = true)}>Link channels</Button>{/if}
 		</EmptyState>
 	{:else}
+		<div class="mb-4">
+			<HiddenNotice
+				hidden={videos.data?.pages[0]?.hidden ?? 0}
+				preset={presetName}
+				onshow={() => (showHidden = true)}
+			/>
+		</div>
 		<VideoGrid videos={items} loading={videos.isPending || videos.isFetchingNextPage} />
 		{#if videos.hasNextPage && !videos.isFetchingNextPage}
 			<div {@attach onVisible(more)} class="h-px"></div>

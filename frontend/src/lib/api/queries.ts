@@ -30,7 +30,9 @@ export const keys = {
 	policy: ['policy'] as const,
 	stats: ['stats'] as const,
 	ytdlp: ['ytdlp'] as const,
-	settings: ['settings'] as const
+	settings: ['settings'] as const,
+	presets: ['presets'] as const,
+	tags: ['tags'] as const
 };
 
 export const queries = {
@@ -83,7 +85,11 @@ export const queries = {
 		queryOptions({
 			queryKey: keys.related(id),
 			queryFn: () =>
-				call(api.GET('/api/videos/{video_pk}/related', { params: { path: { video_pk: id } } }))
+				call(
+					api.GET('/api/videos/{video_pk}/related', {
+						params: { path: { video_pk: id }, query: { preset: 'default' } }
+					})
+				)
 		}),
 	continueWatching: () =>
 		queryOptions({
@@ -153,5 +159,19 @@ export const queries = {
 		queryOptions({
 			queryKey: keys.settings,
 			queryFn: () => call(api.GET('/api/settings'))
+		}),
+	/** Saved tag filters and which one is the default. */
+	presets: () =>
+		queryOptions({
+			queryKey: keys.presets,
+			queryFn: () => call(api.GET('/api/presets'))
+		}),
+	/** Most used tags, or those containing `q`. */
+	tags: (q = '') =>
+		queryOptions({
+			queryKey: [...keys.tags, q] as const,
+			queryFn: () =>
+				call(api.GET('/api/tags', { params: { query: { q: q || undefined, limit: 30 } } })),
+			staleTime: 30_000
 		})
 };

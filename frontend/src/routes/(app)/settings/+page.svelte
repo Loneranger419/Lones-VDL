@@ -12,6 +12,7 @@
 	import { keys, queries } from '#lib/api/queries.js';
 	import { QUALITY_LABELS } from '#lib/format.js';
 	import PageHeader from '#lib/components/app/page-header.svelte';
+	import FilterPresets from '#lib/components/app/filter-presets.svelte';
 	import SimpleSelect from '#lib/components/app/simple-select.svelte';
 	import SunIcon from '@lucide/svelte/icons/sun';
 	import MoonIcon from '@lucide/svelte/icons/moon';
@@ -280,6 +281,19 @@
 					</div>
 				</form>
 			{/if}
+		</Card.Content>
+	</Card.Root>
+
+	<Card.Root>
+		<Card.Header>
+			<Card.Title>Library filters</Card.Title>
+			<Card.Description>
+				Saved tag filters. The default one applies on Home, Library, channel pages, and related
+				videos; you can switch it off from the page. Search and collections are never filtered.
+			</Card.Description>
+		</Card.Header>
+		<Card.Content>
+			<FilterPresets />
 		</Card.Content>
 	</Card.Root>
 

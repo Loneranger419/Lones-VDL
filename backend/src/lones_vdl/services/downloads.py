@@ -29,6 +29,7 @@ from lones_vdl.platforms import UrlKind, parse_url
 from lones_vdl.schemas import JobProgress
 from lones_vdl.services import accounts as account_service
 from lones_vdl.services import channels as channel_service
+from lones_vdl.services import tags as tag_service
 from lones_vdl.services.jobs import (
     PRIORITY_BACKFILL,
     PRIORITY_EXPAND,
@@ -275,6 +276,7 @@ def index_video(
     )
     db.add(video)
     db.flush()
+    tag_service.set_tags(db, video, info.get("tags"))
     return video
 
 

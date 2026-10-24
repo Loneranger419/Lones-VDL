@@ -176,14 +176,44 @@ class VideoDetail(VideoOut):
     media_file: str
     verified_at: datetime | None
     subtitles: list[str] = Field(default_factory=list, description="language codes")
+    tags: list[str] = Field(default_factory=list)
     collection_ids: list[int] = Field(default_factory=list)
 
 
 class VideoPage(BaseModel):
     items: list[VideoOut]
     total: int
+    hidden: int = Field(0, description="matches hidden by the preset's tag rules")
     offset: int
     limit: int
+
+
+class TagOut(BaseModel):
+    tag: str = Field(description="lowercase key used in filters")
+    label: str
+    videos: int
+
+
+class PresetOut(BaseModel):
+    id: int
+    name: str
+    include: list[str]
+    exclude: list[str]
+
+
+class PresetIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    include: list[str] = Field(default_factory=list, max_length=30, description="must have all")
+    exclude: list[str] = Field(default_factory=list, max_length=60, description="must have none")
+
+
+class PresetBookOut(BaseModel):
+    presets: list[PresetOut]
+    default_id: int | None
+
+
+class DefaultPresetIn(BaseModel):
+    preset_id: int | None
 
 
 class RelatedOut(BaseModel):

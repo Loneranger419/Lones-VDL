@@ -26,6 +26,7 @@
 	import ConfirmDialog from '#lib/components/app/confirm-dialog.svelte';
 	import CreatorDialog from '#lib/components/app/creator-dialog.svelte';
 	import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
+	import HiddenNotice from '#lib/components/app/hidden-notice.svelte';
 	import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import TvIcon from '@lucide/svelte/icons/tv';
@@ -42,10 +43,17 @@
 	// --- Videos ----------------------------------------------------------------------------
 	let sort = $state<NonNullable<VideoQuery['sort']>>('uploaded_desc');
 	let kind = $state('all');
+	// The default tag preset hides some videos; this shows them again for this visit.
+	let showHidden = $state(false);
+	const presets = createQuery(() => queries.presets());
+	const presetName = $derived(
+		presets.data?.presets.find((p) => p.id === presets.data?.default_id)?.name ?? ''
+	);
 	const videos = createInfiniteQuery(() =>
 		queries.videoPages({
 			channel: id,
 			sort,
+			preset: showHidden ? 'none' : 'default',
 			kind: kind === 'all' ? undefined : (kind as VideoQuery['kind'])
 		})
 	);
@@ -210,6 +218,13 @@
 						]}
 					/>
 				</div>
+			</div>
+			<div class="mb-3 empty:hidden">
+				<HiddenNotice
+					hidden={videos.data?.pages[0]?.hidden ?? 0}
+					preset={presetName}
+					onshow={() => (showHidden = true)}
+				/>
 			</div>
 			{#if !videos.isPending && !items.length}
 				<EmptyState

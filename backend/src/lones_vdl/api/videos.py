@@ -21,7 +21,7 @@ from lones_vdl.schemas import (
     VideoPage,
     WatchedUpdate,
 )
-from lones_vdl.services import downloads, library, subtitles
+from lones_vdl.services import downloads, library, presets, subtitles
 from lones_vdl.services import jobs as job_service
 from lones_vdl.storage import archive
 
@@ -77,10 +77,16 @@ def list_videos(
     kind: Annotated[ContentKind | None, Query()] = None,
     watch: Annotated[library.WatchFilter | None, Query()] = None,
     integrity: Annotated[Integrity | None, Query()] = None,
+    tag: Annotated[list[str] | None, Query(description="has all of these tags")] = None,
+    exclude_tag: Annotated[list[str] | None, Query(description="has none of these")] = None,
+    preset: Annotated[
+        str | None, Query(description="filter preset: an id, 'default', or 'none' (the default)")
+    ] = None,
     sort: Annotated[library.Sort, Query()] = "archived_desc",
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 48,
 ):
+    chosen = presets.resolve(db, preset)
     params = library.VideoQuery(
         q=q.strip() if q else None,
         channel_pk=channel,
@@ -88,13 +94,21 @@ def list_videos(
         kind=kind,
         watch=watch,
         integrity=integrity,
+        tags=tag or [],
+        exclude_tags=exclude_tag or [],
+        preset_tags=chosen.include if chosen else [],
+        preset_exclude_tags=chosen.exclude if chosen else [],
         sort=sort,
         offset=offset,
         limit=limit,
     )
-    items, total = library.query_videos(db, params)
+    items, total, hidden = library.query_videos(db, params)
     return VideoPage(
-        items=[VideoOut.model_validate(v) for v in items], total=total, offset=offset, limit=limit
+        items=[VideoOut.model_validate(v) for v in items],
+        total=total,
+        hidden=hidden,
+        offset=offset,
+        limit=limit,
     )
 
 
@@ -111,6 +125,7 @@ def get_video(video_pk: int, db: DbDep, services: ServicesDep):
         update={
             "subtitles": library.subtitle_langs(services.settings, video),
             "collection_ids": library.collection_ids(db, video.id),
+            "tags": video.tags,
         }
     )
 
@@ -133,8 +148,20 @@ def fetch_subtitles(video_pk: int, db: DbDep, services: ServicesDep):
 
 
 @router.get("/{video_pk}/related", response_model=RelatedOut)
-def related(video_pk: int, db: DbDep, limit: Annotated[int, Query(ge=1, le=50)] = 12):
-    up_next, more = library.related(db, _get(db, video_pk), limit)
+def related(
+    video_pk: int,
+    db: DbDep,
+    limit: Annotated[int, Query(ge=1, le=50)] = 12,
+    preset: Annotated[str | None, Query()] = None,
+):
+    chosen = presets.resolve(db, preset)
+    up_next, more = library.related(
+        db,
+        _get(db, video_pk),
+        limit,
+        include_tags=chosen.include if chosen else None,
+        exclude_tags=chosen.exclude if chosen else None,
+    )
     return RelatedOut(
         up_next=VideoOut.model_validate(up_next) if up_next else None,
         more_from_channel=[VideoOut.model_validate(v) for v in more],

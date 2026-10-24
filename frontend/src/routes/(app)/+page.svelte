@@ -15,15 +15,19 @@
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 
 	const continueWatching = createQuery(() => queries.continueWatching());
-	const recent = createQuery(() => queries.videos({ sort: 'archived_desc', limit: 16 }));
+	const recent = createQuery(() =>
+		queries.videos({ sort: 'archived_desc', limit: 16, preset: 'default' })
+	);
 	// Shown as 4 rows; the grid decides how many columns fit, so ask for enough to fill them.
-	const uploaded = createQuery(() => queries.videos({ sort: 'uploaded_desc', limit: 48 }));
+	const uploaded = createQuery(() =>
+		queries.videos({ sort: 'uploaded_desc', limit: 48, preset: 'default' })
+	);
 	const channels = createQuery(() => queries.channels());
 	const active = createQuery(() => queries.jobs({ status: ['running'], limit: 5 }));
 	const counts = createQuery(() => queries.jobCounts());
 
 	const queued = $derived((counts.data?.queued ?? 0) + (counts.data?.running ?? 0));
-	const empty = $derived(recent.isSuccess && recent.data.total === 0);
+	const empty = $derived(recent.isSuccess && recent.data.total + recent.data.hidden === 0);
 	const topChannels = $derived(
 		[...(channels.data ?? [])].sort((a, b) => b.video_count - a.video_count).slice(0, 12)
 	);

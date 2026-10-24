@@ -167,6 +167,13 @@ account restrictions. Implemented in `services/policy.py`, `services/accounts.py
   (`enqueue`, `wait_for_job`, `add_account`, `calls`).
 - Scripted file edits on Windows: always pass `encoding="utf-8"`; prefer the Edit tool. Files
   are CRLF in the working tree.
+- **Tags and presets.** yt-dlp's `tags` go to `video_tags` (lowercase key + label) when a video is
+  indexed (`services/tags.py`); `Video.tags_indexed` marks videos whose `info.json` was read, and
+  `tags.backfill` fills older ones at startup. Filter presets (`services/presets.py`) live in
+  `app_settings` key `library.presets` and travel with `state export`. `/api/videos?preset=` takes
+  an id, `default`, or `none` and defaults to none: only browse views (Home, Library, channel,
+  creator, related) send `default`. Search, collections, and Continue watching never hide
+  anything. Tags match exactly, ignoring case; `tag` needs all, `exclude_tag` none.
 - `services/state_transfer.py` backs `lones-vdl state export|import` (database state for moving a
   library to another install; excludes accounts, jobs, policy counters, sessions). If you add a
   table, decide whether it belongs in the bundle and update `_LOCAL_TABLES` / the tests.

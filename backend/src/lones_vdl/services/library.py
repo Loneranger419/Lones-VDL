@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,6 +23,7 @@ from lones_vdl.db.models import (
     WatchProgress,
 )
 from lones_vdl.services import channels as channel_service
+from lones_vdl.services import tags as tag_service
 from lones_vdl.storage import archive
 
 # Playback past this fraction of the duration marks a video watched.
@@ -64,12 +65,36 @@ class VideoQuery:
     kind: str | None = None
     watch: WatchFilter | None = None
     integrity: str | None = None
+    tags: list[str] = field(default_factory=list)  # has all of these
+    exclude_tags: list[str] = field(default_factory=list)  # has none of these
+    # A preset's rules, kept apart so the number of videos it hides can be counted.
+    preset_tags: list[str] = field(default_factory=list)
+    preset_exclude_tags: list[str] = field(default_factory=list)
     sort: Sort = "archived_desc"
     offset: int = 0
     limit: int = 48
 
 
-def query_videos(db: DbSession, params: VideoQuery) -> tuple[list[Video], int]:
+def query_videos(db: DbSession, params: VideoQuery) -> tuple[list[Video], int, int]:
+    """(page of videos, total matching, how many more the preset rules hide)."""
+    query = _filtered(params)
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    hidden = 0
+    if tag_service.has_filter(params.preset_tags, params.preset_exclude_tags):
+        unfiltered = db.scalar(
+            select(func.count()).select_from(_filtered(params, use_preset=False).subquery())
+        )
+        hidden = max((unfiltered or 0) - total, 0)
+    items = db.scalars(
+        with_relations(query)
+        .order_by(*_ORDER[params.sort], Video.id.desc())
+        .offset(params.offset)
+        .limit(params.limit)
+    ).all()
+    return list(items), total, hidden
+
+
+def _filtered(params: VideoQuery, *, use_preset: bool = True) -> Select:
     query = select(Video).outerjoin(WatchProgress, WatchProgress.video_pk == Video.id)
     if params.q:
         query = query.outerjoin(Channel, Channel.id == Video.channel_pk)
@@ -99,14 +124,11 @@ def query_videos(db: DbSession, params: VideoQuery) -> tuple[list[Video], int]:
     elif params.watch == "in_progress":
         query = query.where(WatchProgress.watched.is_(False), WatchProgress.position_seconds > 0)
 
-    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
-    items = db.scalars(
-        with_relations(query)
-        .order_by(*_ORDER[params.sort], Video.id.desc())
-        .offset(params.offset)
-        .limit(params.limit)
-    ).all()
-    return list(items), total
+    include = params.tags + (params.preset_tags if use_preset else [])
+    exclude = params.exclude_tags + (params.preset_exclude_tags if use_preset else [])
+    for condition in tag_service.conditions(include, exclude):
+        query = query.where(condition)
+    return query
 
 
 def _escape_like(text: str) -> str:
@@ -128,7 +150,13 @@ def continue_watching(db: DbSession, limit: int) -> list[Video]:
     return list(db.scalars(with_relations(query)).all())
 
 
-def related(db: DbSession, video: Video, limit: int) -> tuple[Video | None, list[Video]]:
+def related(
+    db: DbSession,
+    video: Video,
+    limit: int,
+    include_tags: list[str] | None = None,
+    exclude_tags: list[str] | None = None,
+) -> tuple[Video | None, list[Video]]:
     """Up next = the following upload from the same channel; plus more from the channel."""
     if video.channel_pk is None:
         return None, []
@@ -147,6 +175,8 @@ def related(db: DbSession, video: Video, limit: int) -> tuple[Video | None, list
                 .limit(1)
             )
         ).first()
+    for condition in tag_service.conditions(include_tags or [], exclude_tags or []):
+        same_channel = same_channel.where(condition)
     more = db.scalars(
         with_relations(
             same_channel.order_by(Video.upload_date.desc().nulls_last(), Video.id.desc()).limit(

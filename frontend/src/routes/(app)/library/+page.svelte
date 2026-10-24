@@ -12,6 +12,8 @@
 	import VideoGrid from '#lib/components/app/video-grid.svelte';
 	import EmptyState from '#lib/components/app/empty-state.svelte';
 	import SimpleSelect from '#lib/components/app/simple-select.svelte';
+	import TagInput from '#lib/components/app/tag-input.svelte';
+	import HiddenNotice from '#lib/components/app/hidden-notice.svelte';
 	import LibraryIcon from '@lucide/svelte/icons/library-big';
 	import SearchXIcon from '@lucide/svelte/icons/search-x';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -47,11 +49,28 @@
 		watch: (params.get('watch') || undefined) as VideoQuery['watch'],
 		channel: params.get('channel') ? Number(params.get('channel')) : undefined,
 		integrity: (params.get('integrity') || undefined) as VideoQuery['integrity'],
+		tag: params.getAll('tag'),
+		// No preset in the URL means the default one; 'none' turns tag filtering off.
+		preset: params.get('preset') || 'default',
 		sort: (params.get('sort') || 'uploaded_desc') as VideoQuery['sort']
 	});
 	const filtered = $derived(
-		Boolean(filters.q || filters.kind || filters.watch || filters.channel || filters.integrity)
+		Boolean(
+			filters.q ||
+			filters.kind ||
+			filters.watch ||
+			filters.channel ||
+			filters.integrity ||
+			filters.tag.length
+		)
 	);
+
+	function setTags(tags: string[]) {
+		const next = new URLSearchParams(page.url.search);
+		next.delete('tag');
+		for (const tag of tags) next.append('tag', tag);
+		goto(`/library${next.size ? `?${next}` : ''}`, { replace: true, reset: false });
+	}
 
 	function setParam(key: string, value: string | undefined, fallback = '') {
 		const next = new URLSearchParams(page.url.search);
@@ -62,9 +81,28 @@
 
 	const videos = createInfiniteQuery(() => queries.videoPages(filters));
 	const channels = createQuery(() => queries.channels());
+	const presets = createQuery(() => queries.presets());
 
 	const items = $derived(videos.data?.pages.flatMap((p) => p.items) ?? []);
 	const total = $derived(videos.data?.pages[0]?.total);
+	const hidden = $derived(videos.data?.pages[0]?.hidden ?? 0);
+	const activePreset = $derived.by(() => {
+		const book = presets.data;
+		if (!book || filters.preset === 'none') return undefined;
+		const id = filters.preset === 'default' ? book.default_id : Number(filters.preset);
+		return book.presets.find((p) => p.id === id);
+	});
+	const presetOptions = $derived.by(() => {
+		const book = presets.data;
+		const standing = book?.presets.find((p) => p.id === book.default_id);
+		return [
+			{ value: 'default', label: standing ? `Default: ${standing.name}` : 'Default: no filter' },
+			...(book?.presets ?? [])
+				.filter((p) => p.id !== book?.default_id)
+				.map((p) => ({ value: String(p.id), label: p.name })),
+			{ value: 'none', label: 'No tag filter' }
+		];
+	});
 
 	const channelOptions = $derived([
 		{ value: '', label: 'All channels' },
@@ -118,11 +156,33 @@
 		/>
 		<SimpleSelect
 			size="sm"
+			class="min-w-36 flex-1 sm:w-48 sm:flex-none"
+			label="Tag filter preset"
+			options={presetOptions}
+			value={filters.preset}
+			onchange={(v) => setParam('preset', v, 'default')}
+		/>
+		<SimpleSelect
+			size="sm"
 			class="min-w-36 flex-1 sm:ml-auto sm:w-44 sm:flex-none"
 			label="Sort"
 			options={SORTS}
 			value={filters.sort}
 			onchange={(v) => setParam('sort', v, 'uploaded_desc')}
+		/>
+	</div>
+	<TagInput
+		class="w-full"
+		label="Only videos with these tags"
+		placeholder="Filter by tag"
+		tags={filters.tag}
+		onchange={setTags}
+	/>
+	<div class="w-full empty:hidden">
+		<HiddenNotice
+			{hidden}
+			preset={activePreset?.name ?? ''}
+			onshow={() => setParam('preset', 'none', 'default')}
 		/>
 	</div>
 	{#if filters.integrity}
