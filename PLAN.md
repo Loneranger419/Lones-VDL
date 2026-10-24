@@ -108,7 +108,17 @@ Helix needed for now.
 - Clips: `uploader` is the **clipper**, not the channel (the channel is in the URL); numeric id;
   `channel_id` present; may be **portrait** (`portrait-1080` formats), so "short" detection by
   orientation does not apply to clips. They are short-form by kind.
-- Not yet tested: a real download, sub-only VOD error text, 429 text, clip lists for big channels.
+- **Real clip download** (anonymous, `-N 1`): 3.9 MB, 1080p HEVC + AAC MP4, ffprobe OK. HEVC
+  does not play in every browser, so Twitch may need the "compatible" derivative backlog item.
+- **Sub-only VOD** (checked on two VODs of a sub-only channel): fails at metadata time, before
+  any media, with `You must be logged into an account that has access to this subscriber-only
+  content. Use --cookies, ...` Map it to an access error (`access_denied`/`authentication_required`)
+  by matching `subscriber-only` in `ytdlp/errors.py`. It must not retry, rotate, or pause the
+  queue. Only the optional Twitch account may be used, for content the user marked.
+- VOD downloads are not tested end to end (short VODs are hard to find). Metadata resolution,
+  formats and the clip path are verified, so a VOD download is assumed to work through the same
+  HLS path; confirm on the first real VOD and use `-N 1` (HLS fragments).
+- Not yet tested: 429 text, clip lists for big channels.
 
 **Authentication (decided 2026-10-23).** Optional cookies for one Twitch account, used only for
 content the user marks as needing it; never an automatic fallback. Anonymous covers public
