@@ -133,6 +133,11 @@
 		return video?.currentTime ?? 0;
 	}
 
+	/** True while the video is actually playing (not paused, not finished). */
+	export function playing() {
+		return !!video && !video.paused && !video.ended;
+	}
+
 	onMount(() => () => {
 		video?.pause();
 		clearTimeout(noticeTimer);

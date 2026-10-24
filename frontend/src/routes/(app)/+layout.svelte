@@ -12,6 +12,7 @@
 	import AccessBanner from '#lib/components/app/access-banner.svelte';
 	import AddDownloadDialog from '#lib/components/app/add-download-dialog.svelte';
 	import Logo from '#lib/components/app/logo.svelte';
+	import MiniPlayer from '#lib/components/app/mini-player.svelte';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
@@ -50,6 +51,7 @@
 		</Sidebar.Inset>
 		<BottomNav />
 	</Sidebar.Provider>
+	<MiniPlayer />
 	<AddDownloadDialog />
 {:else}
 	<div class="grid min-h-svh place-items-center">

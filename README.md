@@ -55,7 +55,7 @@ cd frontend; npm run api
 |------|---------------|
 | Home | Continue watching and recently archived (one line each), recently uploaded (four rows), downloads in progress, channels |
 | Library | Everything archived, newest uploads first by default: search (top bar), kind / progress / channel / tag filters, tag preset, sort. Tags show under each video's description and link here |
-| Watch | Player with captions (not downloaded with a video; "Get subtitles" fetches them as a small job) and resume; remembers volume, mute, speed, and captions on/off in this browser (with captions on but none downloaded, a 5 second note points to Get subtitles); marks a video watched at 90%; up next with autoplay; collection playlists via `?collection=` |
+| Watch | Player with captions (not downloaded with a video; "Get subtitles" fetches them as a small job) and resume; remembers volume, mute, speed, and captions on/off in this browser (with captions on but none downloaded, a 5 second note points to Get subtitles); marks a video watched at 90%; up next with autoplay; a video that is playing when you leave for another page carries on in a small corner player (expand or close it); collection playlists via `?collection=` |
 | Downloads | Paste a video, playlist, or channel link; live progress, cancel, retry (optionally with an account), approve personal-account videos, full yt-dlp log per job |
 | Channels | Per-channel auto-archive (what to include, quality, "Check now"), creator linking; Creators tab groups channels |
 | Collections | Your own ordered playlists |

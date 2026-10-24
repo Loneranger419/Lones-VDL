@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { onDestroy } from 'svelte';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
@@ -15,6 +15,7 @@
 	import { ago, bytes, calendarDate, count } from '#lib/format.js';
 	import Player, { type Track } from '#lib/components/app/player.svelte';
 	import Description from '#lib/components/app/description.svelte';
+	import { mini } from '#lib/mini-player.svelte.js';
 	import VideoCard from '#lib/components/app/video-card.svelte';
 	import VideoMenu from '#lib/components/app/video-menu.svelte';
 	import ChannelAvatar from '#lib/components/app/channel-avatar.svelte';
@@ -138,6 +139,21 @@
 		lastSaved = lastPosition = startFor(current);
 		crossedWatched = false;
 		cancelCountdown();
+	});
+
+	// Leaving for another kind of page while playing: hand the video to the floating player.
+	// (Up next and other videos replace this one, so they do not count.)
+	beforeNavigate(({ to, willUnload }) => {
+		if (willUnload || !to || to.url.pathname.startsWith('/watch/')) return;
+		if (!current || !player?.playing()) return;
+		mini.video = {
+			id: current.id,
+			title: current.title,
+			src: mediaUrl.video(current.id),
+			poster: current.has_thumbnail ? mediaUrl.thumbnail(current.id) : undefined,
+			tracks,
+			position: player.position()
+		};
 	});
 
 	onDestroy(() => {
