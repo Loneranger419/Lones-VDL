@@ -24,4 +24,9 @@ No Playwright. Drive Edge with Python `websocket-client` (installed system-wide)
 6. In Git Bash, set `MSYS_NO_PATHCONV=1` so `/library`-style arguments are not rewritten.
 
 Headless Edge blocks autoplay, so autoplay on the Watch page cannot be checked this way.
+
+To check real playback, start Edge with `--autoplay-policy=no-user-gesture-required`. The audio plays
+through the user's speakers, so **set the volume to 2% first**: before loading the page run
+`localStorage.setItem('lones-vdl:player', JSON.stringify({volume: 0.02}))`, or set `video.volume = 0.02`
+before calling `play()`.
 Stop Edge when done and delete the temp profile.
