@@ -196,6 +196,9 @@ account restrictions. Implemented in `services/policy.py`, `services/accounts.py
   download progress lives in `live.progress`, not in the query cache.
 - Filters and tabs live in the URL (`goto(url, { replace: true, reset: false })`).
 - The player library is only referenced in `#lib/components/app/player.svelte`.
+- In a component script, declare every `$state`/`let` that an `$effect.pre` (or a function it calls)
+  uses *above* that effect: with cached query data (browser back) it runs during setup and a later
+  `let` is still uninitialised (this caused the Watch page "500 Internal Error" on back).
 - Service worker: `src/service-worker/index.ts` with its own `tsconfig.json`; it never caches
   `/api/`. PWA icons in `static/icons/` come from the logo SVG; keep them in sync with
   `logo.svelte` and `static/favicon.svg`.

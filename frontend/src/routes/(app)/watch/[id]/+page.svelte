@@ -88,6 +88,12 @@
 		}))
 	);
 
+	// Declared before the effects below, which run during setup when the video is already cached
+	// (coming back with the browser's back button) and need these.
+	let autoplay = $state(readAutoplay());
+	let countdown = $state<number | null>(null);
+	let timer: ReturnType<typeof setInterval> | undefined;
+
 	// --- Progress saving -------------------------------------------------------------------
 	let player = $state<ReturnType<typeof Player>>();
 	let lastSaved = 0;
@@ -146,10 +152,6 @@
 	}
 
 	// --- Up next / autoplay ----------------------------------------------------------------
-	let autoplay = $state(readAutoplay());
-	let countdown = $state<number | null>(null);
-	let timer: ReturnType<typeof setInterval> | undefined;
-
 	function readAutoplay() {
 		try {
 			return localStorage.getItem(AUTOPLAY_KEY) !== 'off';
