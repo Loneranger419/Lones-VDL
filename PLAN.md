@@ -26,7 +26,8 @@ Everything is committed and pushed to `main`. **Next: Phase 5 (deploy to the LXC
 - [ ] **5. Deploy.** See below.
 - [ ] **6. Twitch.** `platforms/twitch.py`, VODs/clips, Twitch sections in the UI. Clips are the
       short-form group: own caps, wait for VODs, as shorts do. Twitch gets its own entry in
-      `GET /api/policy` (own caps and pause), its own limits card, and its own Settings section.
+      `GET /api/policy` (own caps and pause), its own limits card, and its own Settings section. Design and defaults: "Phase 6 — Twitch"
+      below.
 
 ## Phase 5 — deploy
 
@@ -56,6 +57,54 @@ Everything is committed and pushed to `main`. **Next: Phase 5 (deploy to the LXC
    the likely route. Ask before choosing.
 5. Extend the VM runbook in `README.md`: first-run password, accounts and cookies, updates,
    backups of `<DATA_DIR>`.
+
+## Phase 6 — Twitch
+
+Source of the numbers: `docs/twitch-download-policy-original.md` (git-ignored, user-provided; its
+values are proposed defaults, not Twitch thresholds). Twitch gets its own policy entry, caps,
+pause, card, and Settings section; nothing is shared with YouTube.
+
+**Differs from the YouTube policy** (so do not copy it blindly):
+
+- **No daily count cap** by default. Limits come from concurrency, pacing, and rate-limit feedback.
+- **No account ladder.** No automatic anonymous -> alternate -> personal escalation. Authenticate
+  only when the user configured it for that content. 403 stops the job (`access_denied`, no
+  automatic retry, no account fallback); 401 allows one token refresh, then `authentication_required`.
+  Never rotate accounts, VPNs, or IPs.
+- **Circuit breaker**: 3 consecutive rate-limit or access-denial incidents across distinct jobs
+  within 15 minutes pause new Twitch jobs for 30 minutes (longer if the server says so). A 403'd
+  job is not resumed when the breaker expires.
+
+**Defaults to implement** (all editable except where noted):
+
+| Setting | Default |
+|---|---|
+| Active Twitch downloads (VODs and clips together) | 1 |
+| Concurrent fragments per job | 1 (fixed) |
+| Gap between finished jobs | 20 s (between jobs, never per segment) |
+| Metadata pacing | at most 1 request/s; cache same item 10 min |
+| Channel status poll | at least 60 s; stable VOD list refresh 30 min |
+| Transient retries | 3, backoff 5/15/45 s with jitter; honour server delays |
+| 429 | pause the bucket; use `Retry-After`/`Ratelimit-Reset`, else 60 s then bounded backoff |
+| 404 / deleted / expired | `unavailable`, no retries |
+
+**New-VOD publish delay (decided 2026-10-23).** A VOD detected on a channel is not queued at
+once. It becomes ready when the channel is offline, the VOD has been known for N minutes
+(default 30, editable), and its duration was unchanged between two checks. Open: whether a live
+stream's VOD id is visible while live.
+
+**Authentication (decided 2026-10-23).** Optional cookies for one Twitch account, used only for
+content the user marks as needing it; never an automatic fallback. Anonymous covers public
+VODs and clips.
+
+**Other rules from the policy file:** dedupe by video/clip id plus format; expiration-aware priority
+uses the real expiry timestamp and never overrides cooldowns or permission failures; resume partial
+downloads and validate before marking complete; per-job log of content type/id, attempts, status
+code, cooldown-until, sanitized error; states `rate_limited`, `authentication_required`,
+`access_denied`, `unavailable`, `retry_wait` visible in the UI; never log cookies, tokens, or
+signed URLs. Verify whether Twitch goes through yt-dlp (expected), Streamlink, or the Helix API
+before naming options. Tests: 429 timing, 403 stops, 401 refresh once, 5xx retries, shared
+concurrency, duplicate jobs, resume.
 
 ## Backlog (agreed or noticed, not scheduled)
 
